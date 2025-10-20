@@ -1,38 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import './App.css';
-import axios from 'axios';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import Container from '@mui/material/Container';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import theme from './theme';
+import BankSearch from './components/BankSearch';
+import BankDetail from './components/BankDetail';
 
 function App() {
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    axios.get('/api/hello')
-      .then(response => {
-        setMessage(response.data.message);
-        setLoading(false);
-      })
-      .catch(error => {
-        console.error('Error fetching data:', error);
-        setMessage('Error connecting to server');
-        setLoading(false);
-      });
-  }, []);
-
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Bank Explorer</h1>
-        <p className="subtitle">Financial Statement Analysis Tool</p>
-        {loading ? (
-          <p>Loading...</p>
-        ) : (
-          <div className="message-box">
-            <p>{message}</p>
-          </div>
-        )}
-      </header>
-    </div>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Router>
+        <Box sx={{ minHeight: '100vh', backgroundColor: 'background.default', py: 4 }}>
+          <Container maxWidth="lg">
+            <Typography
+              variant="h4"
+              component="h1"
+              gutterBottom
+              sx={{ mb: 4, fontWeight: 700 }}
+            >
+              Bank Explorer
+            </Typography>
+
+            <Routes>
+              <Route path="/" element={<BankSearch />} />
+              <Route path="/bank/:idrssd" element={<BankDetail />} />
+            </Routes>
+          </Container>
+        </Box>
+      </Router>
+    </ThemeProvider>
   );
 }
 
