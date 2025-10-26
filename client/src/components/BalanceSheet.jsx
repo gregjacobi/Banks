@@ -14,11 +14,42 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 /**
+ * Sparkline Component - Inline Tufte-inspired trend graphic
+ */
+const Sparkline = ({ data, width = 50, height = 20 }) => {
+  if (!data || data.length < 2) return null;
+
+  const values = data.filter(v => v != null && !isNaN(v));
+  if (values.length < 2) return null;
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const points = values.map((value, index) => {
+    const x = (index / (values.length - 1)) * width;
+    const y = height - ((value - min) / range) * height;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg width={width} height={height} style={{ marginLeft: 8, verticalAlign: 'middle' }}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#ccc"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+};
+
+/**
  * Balance Sheet Display Component
  * Tufte-inspired: dense, minimal decoration, data-first
  * Two-column layout: Assets | Liabilities & Equity
  */
-function BalanceSheet({ balanceSheet }) {
+function BalanceSheet({ balanceSheet, historicalData = [] }) {
   const [loansExpanded, setLoansExpanded] = useState(false);
 
   if (!balanceSheet) {
@@ -38,6 +69,34 @@ function BalanceSheet({ balanceSheet }) {
 
   const { assets, liabilities, equity } = balanceSheet;
   const portfolio = assets?.earningAssets?.loansAndLeases?.portfolio;
+
+  // Extract historical trends for sparklines (last 8 quarters)
+  const getHistoricalTrend = (extractFn) => {
+    if (!historicalData || historicalData.length === 0) return [];
+    const data = historicalData.slice(-8).map(extractFn);
+    return data;
+  };
+
+  // Historical data extractors
+  const totalAssetsHistory = getHistoricalTrend(
+    stmt => stmt.balanceSheet?.assets?.totalAssets
+  );
+  const totalLoansHistory = getHistoricalTrend(
+    stmt => stmt.balanceSheet?.assets?.earningAssets?.loansAndLeases?.net
+  );
+  const totalDepositsHistory = getHistoricalTrend(
+    stmt => stmt.balanceSheet?.liabilities?.deposits?.total
+  );
+  const totalEquityHistory = getHistoricalTrend(
+    stmt => stmt.balanceSheet?.equity?.totalEquity
+  );
+  const cashHistory = getHistoricalTrend(
+    stmt => stmt.balanceSheet?.assets?.nonearningAssets?.cashAndDueFromBanks
+  );
+  const securitiesHistory = getHistoricalTrend(
+    stmt => (stmt.balanceSheet?.assets?.earningAssets?.securities?.availableForSale || 0) +
+            (stmt.balanceSheet?.assets?.earningAssets?.securities?.heldToMaturity || 0)
+  );
 
   // Calculate loan categories (same as TrendsTabCompact)
   const calculateLoanCategories = () => {
@@ -152,7 +211,10 @@ function BalanceSheet({ balanceSheet }) {
                   )}
                   <span style={{ marginLeft: portfolio ? 0 : 8 }}>Loans & Leases (Net)</span>
                 </TableCell>
-                <TableCell align="right">{formatCurrency(assets.earningAssets.loansAndLeases.net)}</TableCell>
+                <TableCell align="right">
+                  {formatCurrency(assets.earningAssets.loansAndLeases.net)}
+                  <Sparkline data={totalLoansHistory} />
+                </TableCell>
               </TableRow>
 
               {/* Expandable Loan Portfolio Detail */}
@@ -391,7 +453,10 @@ function BalanceSheet({ balanceSheet }) {
               )}
               <TableRow>
                 <TableCell sx={{ pl: 3 }}>Securities (AFS)</TableCell>
-                <TableCell align="right">{formatCurrency(assets.earningAssets.securities.availableForSale)}</TableCell>
+                <TableCell align="right">
+                  {formatCurrency(assets.earningAssets.securities.availableForSale)}
+                  <Sparkline data={securitiesHistory} />
+                </TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={{ pl: 3 }}>Securities (HTM)</TableCell>
@@ -409,7 +474,10 @@ function BalanceSheet({ balanceSheet }) {
               </TableRow>
               <TableRow>
                 <TableCell sx={{ pl: 3 }}>Cash & Due from Banks</TableCell>
-                <TableCell align="right">{formatCurrency(assets.nonearningAssets.cashAndDueFromBanks)}</TableCell>
+                <TableCell align="right">
+                  {formatCurrency(assets.nonearningAssets.cashAndDueFromBanks)}
+                  <Sparkline data={cashHistory} />
+                </TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={{ pl: 3 }}>Premises & Fixed Assets</TableCell>
@@ -430,6 +498,7 @@ function BalanceSheet({ balanceSheet }) {
                 </TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, borderTop: '2px solid #1976d2', backgroundColor: '#e3f2fd' }}>
                   {formatCurrency(assets.totalAssets)}
+                  <Sparkline data={totalAssetsHistory} />
                 </TableCell>
               </TableRow>
 
@@ -446,7 +515,10 @@ function BalanceSheet({ balanceSheet }) {
               </TableRow>
               <TableRow>
                 <TableCell sx={{ pl: 3 }}>Total Deposits</TableCell>
-                <TableCell align="right">{formatCurrency(liabilities.deposits.total)}</TableCell>
+                <TableCell align="right">
+                  {formatCurrency(liabilities.deposits.total)}
+                  <Sparkline data={totalDepositsHistory} />
+                </TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={{ pl: 5, fontSize: '0.85rem', color: 'text.secondary' }}>
@@ -508,6 +580,7 @@ function BalanceSheet({ balanceSheet }) {
                 <TableCell sx={{ fontWeight: 600 }}>Total Equity</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 600 }}>
                   {formatCurrency(equity.totalEquity)}
+                  <Sparkline data={totalEquityHistory} />
                 </TableCell>
               </TableRow>
 

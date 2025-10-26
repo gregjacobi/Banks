@@ -59,56 +59,67 @@ class CallReportParser {
    * @returns {Object} Structured balance sheet
    */
   transformBalanceSheet(bankData) {
-    // Determine if bank uses RCFD (consolidated) or RCON (domestic)
+    // Determine which prefix to use based on total assets reporting
+    // RCFD = consolidated (foreign + domestic), RCON = domestic only, RCFN = foreign only
     const useRCFD = bankData.RCFD2170 && bankData.RCFD2170 > 0;
-    const prefix = useRCFD ? 'RCFD' : 'RCON';
+    const useRCFN = !useRCFD && bankData.RCFN2170 && bankData.RCFN2170 > 0;
+    const prefix = useRCFD ? 'RCFD' : (useRCFN ? 'RCFN' : 'RCON');
+
+    // Helper function to get value with fallback across prefixes
+    // Some fields may only exist in certain prefix variants
+    const getValue = (code) => {
+      return bankData[`${prefix}${code}`] ||
+             bankData[`RCON${code}`] ||
+             bankData[`RCFD${code}`] ||
+             bankData[`RCFN${code}`] || 0;
+    };
 
     return {
       assets: {
         earningAssets: {
           loansAndLeases: {
-            net: bankData[`${prefix}B528`] || 0,
-            netOfAllowance: bankData[`${prefix}B529`] || 0,
-            heldForSale: bankData[`${prefix}5369`] || 0,
+            net: getValue('B528'),
+            netOfAllowance: getValue('B529'),
+            heldForSale: getValue('5369'),
             portfolio: this.transformLoanPortfolio(bankData, prefix)
           },
           securities: {
-            availableForSale: bankData[`${prefix}1773`] || 0,
-            heldToMaturity: bankData[`${prefix}JJ34`] || 0,
-            equity: bankData[`${prefix}JA22`] || 0
+            availableForSale: getValue('1773'),
+            heldToMaturity: getValue('JJ34'),
+            equity: getValue('JA22')
           },
-          interestBearingBankBalances: bankData[`${prefix}0071`] || 0,
-          fedFundsSoldAndRepos: bankData[`${prefix}B989`] || 0
+          interestBearingBankBalances: getValue('0071'),
+          fedFundsSoldAndRepos: getValue('B989')
         },
         nonearningAssets: {
-          cashAndDueFromBanks: bankData[`${prefix}0081`] || 0,
-          premisesAndFixedAssets: bankData[`${prefix}2145`] || 0,
-          intangibleAssets: bankData[`${prefix}2143`] || 0,
-          otherRealEstate: bankData[`${prefix}2150`] || 0,
-          otherAssets: bankData[`${prefix}2160`] || 0
+          cashAndDueFromBanks: getValue('0081'),
+          premisesAndFixedAssets: getValue('2145'),
+          intangibleAssets: getValue('2143'),
+          otherRealEstate: getValue('2150'),
+          otherAssets: getValue('2160')
         },
-        totalAssets: bankData[`${prefix}2170`] || 0
+        totalAssets: getValue('2170')
       },
       liabilities: {
         deposits: {
-          total: bankData[`${prefix}2200`] || 0,
-          nonInterestBearing: bankData[`${prefix}6631`] || 0,
-          interestBearing: bankData[`${prefix}6636`] || 0
+          total: getValue('2200'),
+          nonInterestBearing: getValue('6631'),
+          interestBearing: getValue('6636')
         },
         borrowings: {
-          fedFundsPurchasedAndRepos: bankData[`${prefix}B993`] || 0,
-          otherBorrowedMoney: bankData[`${prefix}3190`] || 0,
-          subordinatedDebt: bankData[`${prefix}3200`] || 0
+          fedFundsPurchasedAndRepos: getValue('B993'),
+          otherBorrowedMoney: getValue('3190'),
+          subordinatedDebt: getValue('3200')
         },
-        otherLiabilities: bankData[`${prefix}2930`] || 0,
-        totalLiabilities: bankData[`${prefix}2948`] || 0
+        otherLiabilities: getValue('2930'),
+        totalLiabilities: getValue('2948')
       },
       equity: {
-        commonStock: bankData[`${prefix}3230`] || 0,
-        surplus: bankData[`${prefix}3839`] || 0,
-        retainedEarnings: bankData[`${prefix}3632`] || 0,
-        accumulatedOCI: bankData[`${prefix}B530`] || 0,
-        totalEquity: bankData[`${prefix}3210`] || 0
+        commonStock: getValue('3230'),
+        surplus: getValue('3839'),
+        retainedEarnings: getValue('3632'),
+        accumulatedOCI: getValue('B530'),
+        totalEquity: getValue('3210')
       },
       dataSource: useRCFD ? 'consolidated' : 'domestic'
     };
@@ -121,47 +132,55 @@ class CallReportParser {
    * @returns {Object} Structured loan portfolio breakdown
    */
   transformLoanPortfolio(bankData, prefix) {
+    // Helper function to get value with fallback across prefixes
+    const getValue = (code) => {
+      return bankData[`${prefix}${code}`] ||
+             bankData[`RCON${code}`] ||
+             bankData[`RCFD${code}`] ||
+             bankData[`RCFN${code}`] || 0;
+    };
+
     return {
       realEstate: {
         constructionAndLandDevelopment: {
-          total: bankData[`${prefix}2746`] || 0,
-          residential1To4Family: bankData[`${prefix}F158`] || 0,
-          otherConstructionAndLandDevelopment: bankData[`${prefix}F159`] || 0
+          total: getValue('2746'),
+          residential1To4Family: getValue('F158'),
+          otherConstructionAndLandDevelopment: getValue('F159')
         },
         securedBy1To4Family: {
-          revolvingOpenEnd: bankData[`${prefix}1797`] || 0,
-          closedEndFirstLiens: bankData[`${prefix}5367`] || 0,
-          closedEndJuniorLiens: bankData[`${prefix}5368`] || 0
+          revolvingOpenEnd: getValue('1797'),
+          closedEndFirstLiens: getValue('5367'),
+          closedEndJuniorLiens: getValue('5368')
         },
-        multifamily: bankData[`${prefix}1460`] || 0,
+        multifamily: getValue('1460'),
         nonfarmNonresidential: {
-          ownerOccupied: bankData[`${prefix}F160`] || 0,
-          otherNonfarmNonresidential: bankData[`${prefix}F161`] || 0
+          ownerOccupied: getValue('F160'),
+          otherNonfarmNonresidential: getValue('F161')
         },
-        farmland: bankData[`${prefix}1420`] || 0
+        farmland: getValue('1420')
       },
       commercialAndIndustrial: {
-        usAddressees: bankData[`${prefix}1763`] || 0,
-        nonUsAddressees: bankData[`${prefix}1764`] || 0
+        usAddressees: getValue('1763'),
+        nonUsAddressees: getValue('1764')
       },
       consumer: {
-        creditCards: bankData[`${prefix}B537`] || 0,
-        automobileLoans: bankData[`${prefix}K137`] || 0,
-        otherRevolvingCredit: bankData[`${prefix}B538`] || 0,
-        otherConsumerLoans: bankData[`${prefix}B539`] || 0
+        creditCards: getValue('B537'),
+        automobileLoans: getValue('K137'),
+        otherRevolvingCredit: getValue('B538'),
+        otherConsumerLoans: getValue('B539')
       },
       other: {
-        agriculturalProduction: bankData[`${prefix}1590`] || 0,
-        toDepositoryInstitutions: bankData[`${prefix}1288`] || 0,
-        loansToForeignGovernments: bankData[`${prefix}2081`] || 0,
-        municipalLoans: bankData[`${prefix}2107`] || 0,
-        loansToOtherDepositoryUS: bankData[`${prefix}B534`] || 0,
-        loansToBanksForeign: bankData[`${prefix}B535`] || 0,
-        allOtherLoans: bankData[`${prefix}A570`] || 0
+        agriculturalProduction: getValue('1590'),
+        toDepositoryInstitutions: getValue('1288'),
+        loansToForeignGovernments: getValue('2081'),
+        municipalLoans: getValue('2107'),
+        loansToOtherDepositoryUS: getValue('B534'),
+        loansToBanksForeign: getValue('B535'),
+        allOtherLoans: getValue('A570')
       },
       leaseFinancingReceivables: {
-        consumerLeases: bankData[`${prefix}F162`] || 0,
-        allOtherLeases: bankData[`${prefix}F163`] || 0
+        consumerLeases: getValue('F162'),
+        allOtherLeases: getValue('F163')
       }
     };
   }
@@ -248,9 +267,10 @@ class CallReportParser {
    * Calculate key financial ratios
    * @param {Object} balanceSheet - Structured balance sheet
    * @param {Object} incomeStatement - Structured income statement
+   * @param {Date} reportingPeriod - Optional reporting period for proper annualization
    * @returns {Object} Calculated ratios
    */
-  calculateRatios(balanceSheet, incomeStatement) {
+  calculateRatios(balanceSheet, incomeStatement, reportingPeriod = null) {
     const ratios = {};
 
     // Efficiency Ratio = (Noninterest Expense / (Net Interest Income + Noninterest Income)) × 100
@@ -259,17 +279,38 @@ class CallReportParser {
       ratios.efficiencyRatio = (incomeStatement.noninterestExpense.total / revenue) * 100;
     }
 
-    // Return on Assets (ROA) = (Net Income / Total Assets) × 100
+    // Determine annualization factor based on reporting period
+    let annualizationFactor = 1;
+    if (reportingPeriod) {
+      const month = reportingPeriod.getMonth();
+      // Q1 (March 31): month = 2, factor = 4
+      // Q2 (June 30): month = 5, factor = 2
+      // Q3 (September 30): month = 8, factor = 4/3
+      // Q4 (December 31): month = 11, factor = 1 (already annual)
+      if (month === 2) {
+        annualizationFactor = 4;
+      } else if (month === 5) {
+        annualizationFactor = 2;
+      } else if (month === 8) {
+        annualizationFactor = 4 / 3;
+      }
+    }
+
+    // Annualize YTD income statement data
+    const annualizedNetIncome = incomeStatement.netIncome * annualizationFactor;
+    const annualizedNII = incomeStatement.netInterestIncome * annualizationFactor;
+
+    // Return on Assets (ROA) = (Annualized Net Income / Total Assets) × 100
     if (balanceSheet.assets.totalAssets > 0) {
-      ratios.roa = (incomeStatement.netIncome / balanceSheet.assets.totalAssets) * 100;
+      ratios.roa = (annualizedNetIncome / balanceSheet.assets.totalAssets) * 100;
     }
 
-    // Return on Equity (ROE) = (Net Income / Total Equity) × 100
+    // Return on Equity (ROE) = (Annualized Net Income / Total Equity) × 100
     if (balanceSheet.equity.totalEquity > 0) {
-      ratios.roe = (incomeStatement.netIncome / balanceSheet.equity.totalEquity) * 100;
+      ratios.roe = (annualizedNetIncome / balanceSheet.equity.totalEquity) * 100;
     }
 
-    // Net Interest Margin (NIM) = (Net Interest Income / Earning Assets) × 100
+    // Net Interest Margin (NIM) = (Annualized Net Interest Income / Earning Assets) × 100
     // Approximate earning assets as sum of loans, securities, and interest-bearing balances
     const earningAssets =
       balanceSheet.assets.earningAssets.loansAndLeases.net +
@@ -279,7 +320,7 @@ class CallReportParser {
       balanceSheet.assets.earningAssets.fedFundsSoldAndRepos;
 
     if (earningAssets > 0) {
-      ratios.netInterestMargin = (incomeStatement.netInterestIncome / earningAssets) * 100;
+      ratios.netInterestMargin = (annualizedNII / earningAssets) * 100;
     }
 
     // Tier 1 Leverage Ratio = (Tier 1 Capital / Total Assets) × 100
@@ -288,7 +329,7 @@ class CallReportParser {
       ratios.tier1LeverageRatio = (balanceSheet.equity.totalEquity / balanceSheet.assets.totalAssets) * 100;
     }
 
-    // Note: Operating Leverage (QoQ) will be calculated separately when comparing periods
+    // Note: Operating Leverage (YoY) will be calculated separately when comparing periods
 
     return ratios;
   }

@@ -86,6 +86,10 @@ router.get('/:idrssd/job-status', async (req, res) => {
       return res.json({ hasJob: false });
     }
 
+    // Calculate elapsed time
+    const elapsedMs = Date.now() - job.createdAt;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
     res.json({
       hasJob: true,
       job: {
@@ -96,12 +100,89 @@ router.get('/:idrssd/job-status', async (req, res) => {
         result: job.result,
         error: job.error,
         createdAt: job.createdAt,
-        updatedAt: job.updatedAt
+        updatedAt: job.updatedAt,
+        elapsedSeconds
       }
     });
   } catch (error) {
     console.error('Error fetching job status:', error);
     res.status(500).json({ error: 'Failed to fetch job status' });
+  }
+});
+
+/**
+ * DELETE /api/research/:idrssd/job
+ * Cancel/kill a running job
+ */
+router.delete('/:idrssd/job', async (req, res) => {
+  try {
+    const { idrssd } = req.params;
+    const { type } = req.query; // 'report' or 'podcast'
+
+    const job = jobTracker.getLatestJob(idrssd, type || 'report');
+
+    if (!job) {
+      return res.status(404).json({ error: 'No active job found' });
+    }
+
+    if (job.status === 'completed' || job.status === 'failed') {
+      return res.status(400).json({ error: 'Job is already finished' });
+    }
+
+    // Mark job as cancelled
+    jobTracker.failJob(job.jobId, new Error('Job cancelled by user'));
+
+    res.json({
+      success: true,
+      message: 'Job cancelled successfully'
+    });
+  } catch (error) {
+    console.error('Error cancelling job:', error);
+    res.status(500).json({ error: 'Failed to cancel job' });
+  }
+});
+
+/**
+ * GET /api/research/:idrssd/generate-stream
+ * Start report generation with SSE streaming
+ * Also creates a job tracker for fallback polling
+ */
+router.get('/:idrssd/generate-stream', async (req, res) => {
+  try {
+    const { idrssd } = req.params;
+
+    // Create a background job for tracking
+    const jobId = jobTracker.createJob(idrssd, 'report');
+
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendEvent = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('status', { jobId, message: 'Starting report generation...' });
+
+    // Generate report with streaming
+    try {
+      await generateReportWithStreaming(idrssd, jobId, sendEvent);
+      sendEvent('complete', { message: 'Report generation complete' });
+    } catch (error) {
+      console.error(`[Job ${jobId}] Error:`, error);
+      jobTracker.failJob(jobId, error);
+      sendEvent('error', { message: error.message });
+    } finally {
+      res.end();
+    }
+
+  } catch (error) {
+    console.error('Error starting streaming generation:', error);
+    res.status(500).json({ error: 'Failed to start generation' });
   }
 });
 
@@ -755,6 +836,166 @@ router.get('/:idrssd/podcast/:filename', async (req, res) => {
     res.status(404).json({ error: 'Podcast file not found' });
   }
 });
+
+/**
+ * Generate report with streaming (async function)
+ * Updates job tracker AND sends SSE events
+ */
+async function generateReportWithStreaming(idrssd, jobId, sendEvent) {
+  try {
+    console.log(`[Job ${jobId}] Starting streaming report generation for ${idrssd}`);
+
+    // Step 1: Fetch bank information
+    jobTracker.updateJob(jobId, {
+      status: 'running',
+      progress: 10,
+      message: 'Fetching bank information...'
+    });
+    sendEvent('status', { progress: 10, message: 'Fetching bank information...' });
+
+    const institution = await Institution.findOne({ idrssd });
+    if (!institution) {
+      throw new Error('Bank not found');
+    }
+
+    // Step 2: Fetch financial data
+    jobTracker.updateJob(jobId, {
+      progress: 20,
+      message: 'Fetching financial statements...'
+    });
+    sendEvent('status', { progress: 20, message: 'Fetching financial statements...' });
+
+    const financialStatements = await FinancialStatement.find({ idrssd })
+      .sort({ reportingPeriod: 1 })
+      .limit(20);
+
+    if (financialStatements.length === 0) {
+      throw new Error('No financial data found for this bank');
+    }
+
+    // Step 3: Prepare trends data
+    jobTracker.updateJob(jobId, {
+      progress: 30,
+      message: 'Preparing trends data...'
+    });
+    sendEvent('status', { progress: 30, message: 'Preparing trends data...' });
+
+    const trendsData = prepareTrendsData(financialStatements);
+    const latestStatement = financialStatements[financialStatements.length - 1];
+
+    // Step 3.5: Fetch peer analysis data
+    const peerAnalysis = latestStatement.peerAnalysis || null;
+    let peerData = null;
+
+    if (peerAnalysis && peerAnalysis.peers && peerAnalysis.peers.peerIds) {
+      const peerIds = peerAnalysis.peers.peerIds;
+      const peerInstitutions = await Institution.find({
+        idrssd: { $in: peerIds }
+      }).select('idrssd name').lean();
+
+      const peerStatements = await FinancialStatement.find({
+        idrssd: { $in: peerIds },
+        reportingPeriod: latestStatement.reportingPeriod
+      }).select('idrssd ratios balanceSheet.assets.totalAssets').lean();
+
+      const peerMap = new Map(peerInstitutions.map(p => [p.idrssd, p.name]));
+
+      peerData = {
+        count: peerAnalysis.peers.count,
+        rankings: peerAnalysis.rankings,
+        peerAverages: peerAnalysis.peerAverages,
+        peerBanks: peerStatements.map(stmt => ({
+          idrssd: stmt.idrssd,
+          name: peerMap.get(stmt.idrssd) || `Bank ${stmt.idrssd}`,
+          totalAssets: stmt.balanceSheet?.assets?.totalAssets || 0,
+          efficiencyRatio: stmt.ratios?.efficiencyRatio,
+          roe: stmt.ratios?.roe,
+          roa: stmt.ratios?.roa,
+          nim: stmt.ratios?.netInterestMargin
+        })).sort((a, b) => b.totalAssets - a.totalAssets)
+      };
+    }
+
+    const bankInfo = {
+      idrssd: institution.idrssd,
+      name: institution.name,
+      city: institution.city,
+      state: institution.state,
+      website: institution.website,
+      totalAssets: latestStatement.balanceSheet.assets.totalAssets,
+      latestPeriod: latestStatement.reportingPeriod.toISOString().split('T')[0]
+    };
+
+    // Step 4: Call Claude API with streaming
+    jobTracker.updateJob(jobId, {
+      progress: 40,
+      message: 'Analyzing with Claude AI...'
+    });
+    sendEvent('status', { progress: 40, message: 'Analyzing with Claude AI...' });
+
+    const claudeService = new ClaudeService();
+
+    const result = await claudeService.analyzeBankPerformance(
+      bankInfo,
+      trendsData,
+      peerData,
+      (event) => {
+        // Stream thinking and text to client
+        console.log('[Streaming] Callback event:', event.type, event);
+        if (event.type === 'thinking_delta') {
+          if (event.content) {
+            sendEvent('thinking', { text: event.content });
+          }
+        } else if (event.type === 'text_delta') {
+          if (event.content) {
+            sendEvent('text', { text: event.content });
+          }
+        } else if (event.type === 'status') {
+          jobTracker.updateJob(jobId, {
+            progress: 40 + (event.progress || 0) * 0.5, // 40-90%
+            message: event.message
+          });
+          sendEvent('status', { progress: 40 + (event.progress || 0) * 0.5, message: event.message });
+        }
+      }
+    );
+
+    // Step 5: Save report
+    jobTracker.updateJob(jobId, {
+      progress: 95,
+      message: 'Saving report...'
+    });
+    sendEvent('status', { progress: 95, message: 'Saving report...' });
+
+    const timestamp = Date.now();
+    const filename = `${idrssd}_${timestamp}.json`;
+    const filePath = path.join(RESEARCH_DIR, filename);
+
+    const reportData = {
+      idrssd: institution.idrssd,
+      bankName: institution.name,
+      generatedAt: new Date().toISOString(),
+      model: result.model,
+      thinking: result.thinking,
+      analysis: result.analysis,
+      trendsData,
+      metadata: result.metadata
+    };
+
+    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
+
+    // Mark job as complete
+    jobTracker.completeJob(jobId, { filename, reportData });
+    sendEvent('status', { progress: 100, message: 'Report complete!' });
+
+    console.log(`[Job ${jobId}] Report generation complete`);
+
+  } catch (error) {
+    console.error(`[Job ${jobId}] Error:`, error);
+    jobTracker.failJob(jobId, error);
+    throw error;
+  }
+}
 
 /**
  * Generate report in background (async function)

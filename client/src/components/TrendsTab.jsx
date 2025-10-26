@@ -405,100 +405,101 @@ function TrendsTab({ idrssd, availablePeriods }) {
     }
   };
 
-  // Asset composition chart data - Stacked area chart with matching colors from pie chart
-  // Use same color scheme: blues for consumer, greens for business
+  // Asset composition chart data - Tufte-inspired with grouped colors
+  // Personal lending: shades of blue (darkest to lightest)
+  // Commercial lending: shades of green (darkest to lightest)
   const assetCompositionData = {
     labels,
     datasets: [
-      // Consumer lending (blues - same as pie chart)
+      // Personal/Consumer lending (blues - darkest to lightest)
       {
-        label: 'Residential Mortgages (1-4 Family)',
+        label: 'Personal: Residential Mortgages',
         data: assetBreakdownData.map(d => (d.residential / 1000).toFixed(0)),
-        backgroundColor: 'rgba(21, 101, 192, 0.8)', // #1565c0
-        borderColor: '#1565c0',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(13, 71, 161, 0.85)', // Darkest blue
+        borderColor: 'rgba(13, 71, 161, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
       {
-        label: 'Credit Cards',
-        data: assetBreakdownData.map(d => (d.creditCards / 1000).toFixed(0)),
-        backgroundColor: 'rgba(25, 118, 210, 0.8)', // #1976d2
-        borderColor: '#1976d2',
-        borderWidth: 0.5,
-        fill: true,
-        tension: 0.2,
-        pointRadius: 0,
-        pointHoverRadius: 3
-      },
-      {
-        label: 'Auto Loans',
+        label: 'Personal: Auto Loans',
         data: assetBreakdownData.map(d => (d.auto / 1000).toFixed(0)),
-        backgroundColor: 'rgba(30, 136, 229, 0.8)', // #1e88e5
-        borderColor: '#1e88e5',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(25, 118, 210, 0.85)',
+        borderColor: 'rgba(25, 118, 210, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
       {
-        label: 'Other Consumer',
+        label: 'Personal: Credit Cards',
+        data: assetBreakdownData.map(d => (d.creditCards / 1000).toFixed(0)),
+        backgroundColor: 'rgba(66, 165, 245, 0.85)',
+        borderColor: 'rgba(66, 165, 245, 0.3)',
+        borderWidth: 0,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHoverRadius: 0
+      },
+      {
+        label: 'Personal: Other Consumer',
         data: assetBreakdownData.map(d => (d.otherConsumer / 1000).toFixed(0)),
-        backgroundColor: 'rgba(66, 165, 245, 0.8)', // #42a5f5
-        borderColor: '#42a5f5',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(144, 202, 249, 0.85)', // Lightest blue
+        borderColor: 'rgba(144, 202, 249, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
-      // Business lending (greens - same as pie chart)
+      // Commercial/Business lending (greens - darkest to lightest)
       {
-        label: 'Commercial Real Estate',
+        label: 'Commercial: Real Estate',
         data: assetBreakdownData.map(d => (d.commercialRE / 1000).toFixed(0)),
-        backgroundColor: 'rgba(46, 125, 50, 0.8)', // #2e7d32
-        borderColor: '#2e7d32',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(27, 94, 32, 0.85)', // Darkest green
+        borderColor: 'rgba(27, 94, 32, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
       {
-        label: 'C&I (US)',
+        label: 'Commercial: C&I (US)',
         data: assetBreakdownData.map(d => (d.cniUS / 1000).toFixed(0)),
-        backgroundColor: 'rgba(56, 142, 60, 0.8)', // #388e3c
-        borderColor: '#388e3c',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(56, 142, 60, 0.85)',
+        borderColor: 'rgba(56, 142, 60, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
       {
-        label: 'C&I (Non-US)',
+        label: 'Commercial: C&I (Non-US)',
         data: assetBreakdownData.map(d => (d.cniNonUS / 1000).toFixed(0)),
-        backgroundColor: 'rgba(67, 160, 71, 0.8)', // #43a047
-        borderColor: '#43a047',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(102, 187, 106, 0.85)',
+        borderColor: 'rgba(102, 187, 106, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       },
       {
-        label: 'Other Business',
+        label: 'Commercial: Other Business',
         data: assetBreakdownData.map(d => (d.otherBusiness / 1000).toFixed(0)),
-        backgroundColor: 'rgba(102, 187, 106, 0.8)', // #66bb6a
-        borderColor: '#66bb6a',
-        borderWidth: 0.5,
+        backgroundColor: 'rgba(165, 214, 167, 0.85)', // Lightest green
+        borderColor: 'rgba(165, 214, 167, 0.3)',
+        borderWidth: 0,
         fill: true,
-        tension: 0.2,
+        tension: 0.3,
         pointRadius: 0,
-        pointHoverRadius: 3
+        pointHoverRadius: 0
       }
     ]
   };
@@ -536,22 +537,33 @@ function TrendsTab({ idrssd, availablePeriods }) {
   };
 
   // Doughnut chart for current composition - with subcategories
-  // Flatten subcategories into individual slices
+  // Use EXACT same colors as the lending portfolio trends chart
+  // Personal/Consumer: blues (darkest to lightest)
+  // Commercial/Business: greens (darkest to lightest)
+  const personalColors = [
+    'rgba(13, 71, 161, 0.85)',   // Residential - darkest blue
+    'rgba(25, 118, 210, 0.85)',  // Auto - dark blue
+    'rgba(66, 165, 245, 0.85)',  // Credit Cards - medium blue
+    'rgba(144, 202, 249, 0.85)'  // Other - lightest blue
+  ];
+  const commercialColors = [
+    'rgba(27, 94, 32, 0.85)',    // CRE - darkest green
+    'rgba(56, 142, 60, 0.85)',   // C&I US - dark green
+    'rgba(102, 187, 106, 0.85)', // C&I Non-US - medium green
+    'rgba(165, 214, 167, 0.85)'  // Other - lightest green
+  ];
+
   const chartData = [];
   const chartLabels = [];
   const chartColors = [];
 
-  // Color palettes for each category
-  const consumerColors = ['#1565c0', '#1976d2', '#1e88e5', '#42a5f5']; // Blues
-  const businessColors = ['#2e7d32', '#388e3c', '#43a047', '#66bb6a']; // Greens
-
   loanCategories.forEach((category, catIndex) => {
-    const colorPalette = category.name === 'Consumer Lending' ? consumerColors : businessColors;
+    const colorPalette = category.name === 'Consumer Lending' ? personalColors : commercialColors;
 
     category.subcategories.forEach((sub, subIndex) => {
       const pct = (sub.value / latestLoans.totalLoans) * 100;
       if (pct > 0.1) { // Only show if > 0.1%
-        chartData.push(pct);
+        chartData.push(pct.toFixed(1));
         chartLabels.push(sub.name);
         chartColors.push(colorPalette[subIndex % colorPalette.length]);
       }
@@ -583,7 +595,8 @@ function TrendsTab({ idrssd, availablePeriods }) {
         bodyFont: { size: 10 },
         callbacks: {
           label: (context) => {
-            return `${context.label}: ${context.parsed}%`;
+            const value = parseFloat(context.parsed);
+            return `${context.label}: ${value.toFixed(1)}%`;
           }
         }
       }
@@ -867,12 +880,12 @@ function TrendsTab({ idrssd, availablePeriods }) {
       {/* Asset Composition */}
       <Paper sx={{ p: 2.5, mb: 2.5, bgcolor: '#fafafa' }}>
         <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600, fontSize: '0.9rem' }}>
-          Asset Size Over Time
+          Lending Portfolio Trends
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5, fontSize: '0.75rem' }}>
-          Values in millions of dollars
+          Personal (blue tones) vs Commercial (green tones) lending • Values in millions
         </Typography>
-        <Box sx={{ height: 200 }}>
+        <Box sx={{ height: 220 }}>
           <Line data={assetCompositionData} options={{
             ...tufteOptions,
             scales: {
@@ -882,7 +895,33 @@ function TrendsTab({ idrssd, availablePeriods }) {
               },
               y: {
                 ...tufteOptions.scales.y,
-                stacked: true
+                stacked: true,
+                beginAtZero: true
+              }
+            },
+            plugins: {
+              ...tufteOptions.plugins,
+              legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                  boxWidth: 12,
+                  padding: 8,
+                  font: { size: 9 },
+                  usePointStyle: true,
+                  pointStyle: 'rect',
+                  generateLabels: (chart) => {
+                    const datasets = chart.data.datasets;
+                    return datasets.map((dataset, i) => ({
+                      text: dataset.label,
+                      fillStyle: dataset.backgroundColor,
+                      strokeStyle: dataset.borderColor,
+                      lineWidth: 0,
+                      hidden: !chart.isDatasetVisible(i),
+                      index: i
+                    }));
+                  }
+                }
               }
             }
           }} />

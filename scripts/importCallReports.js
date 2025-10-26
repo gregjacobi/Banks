@@ -86,8 +86,9 @@ async function importCallReports() {
         const balanceSheet = parser.transformBalanceSheet(mergedData);
         const incomeStatement = parser.transformIncomeStatement(riBank);
 
-        // Calculate ratios
-        const ratios = parser.calculateRatios(balanceSheet, incomeStatement);
+        // Calculate ratios (pass reporting period for proper annualization)
+        const reportingPeriod = new Date('2025-06-30');
+        const ratios = parser.calculateRatios(balanceSheet, incomeStatement, reportingPeriod);
 
         // Validate
         const bsValidation = parser.validateBalanceSheet(balanceSheet);

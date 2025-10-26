@@ -23,6 +23,7 @@ import TrendsTab from './TrendsTabCompact';
 import RatiosTab from './RatiosTab';
 import PeerComparisonTab from './PeerComparisonTab';
 import AIResearchTab from './AIResearchTab';
+import CompactPodcastPlayer from './CompactPodcastPlayer';
 
 /**
  * Bank Detail View
@@ -38,6 +39,8 @@ function BankDetail() {
   const [availablePeriods, setAvailablePeriods] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [previousPeriodData, setPreviousPeriodData] = useState(null);
+  const [podcastUrl, setPodcastUrl] = useState(null);
+  const [historicalData, setHistoricalData] = useState([]);
 
   useEffect(() => {
     const fetchBankData = async () => {
@@ -75,6 +78,33 @@ function BankDetail() {
 
     fetchBankData();
   }, [idrssd, selectedPeriod]);
+
+  // Fetch historical data for sparklines (similar to TrendsTab)
+  useEffect(() => {
+    const fetchHistoricalData = async () => {
+      if (!availablePeriods || availablePeriods.length === 0) {
+        return;
+      }
+
+      try {
+        // Fetch financial statements for all periods
+        const requests = availablePeriods.map(period =>
+          axios.get(`/api/banks/${idrssd}?period=${period}`)
+        );
+        const responses = await Promise.all(requests);
+        const statements = responses.map(r => r.data.financialStatement);
+
+        // Sort by period (oldest first for trends)
+        statements.sort((a, b) => new Date(a.reportingPeriod) - new Date(b.reportingPeriod));
+
+        setHistoricalData(statements);
+      } catch (error) {
+        console.error('Error fetching historical data:', error);
+      }
+    };
+
+    fetchHistoricalData();
+  }, [idrssd, availablePeriods]);
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -225,7 +255,10 @@ function BankDetail() {
             <TrendsTab idrssd={idrssd} availablePeriods={availablePeriods} />
           )}
           {activeTab === 1 && (
-            <BalanceSheet balanceSheet={financialStatement?.balanceSheet} />
+            <BalanceSheet
+              balanceSheet={financialStatement?.balanceSheet}
+              historicalData={historicalData}
+            />
           )}
           {activeTab === 2 && (
             <IncomeStatement incomeStatement={financialStatement?.incomeStatement} />
@@ -240,7 +273,11 @@ function BankDetail() {
             <PeerComparisonTab idrssd={idrssd} availablePeriods={availablePeriods} />
           )}
           {activeTab === 5 && (
-            <AIResearchTab idrssd={idrssd} bankName={institution.name} />
+            <AIResearchTab
+              idrssd={idrssd}
+              bankName={institution.name}
+              onPodcastReady={setPodcastUrl}
+            />
           )}
         </CardContent>
       </Card>
@@ -250,6 +287,15 @@ function BankDetail() {
         <Alert severity="warning" sx={{ mt: 2 }}>
           Balance sheet validation warning: Assets may not equal Liabilities + Equity
         </Alert>
+      )}
+
+      {/* Compact Podcast Player */}
+      {podcastUrl && (
+        <CompactPodcastPlayer
+          podcastUrl={podcastUrl}
+          bankName={institution?.name}
+          onClose={() => setPodcastUrl(null)}
+        />
       )}
     </Box>
   );

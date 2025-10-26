@@ -16,7 +16,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.9.4",
     "react-scripts": "5.0.1",
-    "recharts": "^3.3.0"
+    "recharts": "^3.3.0",
+    "remark-gfm": "^4.0.1"
   },
   "scripts": {
     "start": "react-scripts start",

@@ -36,7 +36,7 @@ Keep segments conversational (1-3 sentences per turn). Natural back-and-forth di
    */
   generatePodcastScript: (bankName, reportAnalysis, selectedExperts, trendsData) => {
     const expertsDescription = {
-      WARREN_VAULT: 'Warren Vault is a finance bro with serious credentials - he talks fast, throws around investor terminology freely, and gets excited about the numbers. Think hedge fund analyst who lives for earnings calls. He\'s confident, energetic, and doesn\'t sugarcoat when something looks bad.',
+      WARREN_VAULT: 'Warren Vault is a sharp investor analyst with serious credentials - he talks fast, throws around investor terminology freely, and gets excited about the numbers. Think hedge fund analyst who lives for earnings calls. He\'s confident, energetic, and doesn\'t sugarcoat when something looks bad. Professional but enthusiastic - avoid overusing casual slang like "dude" or "bro".',
       DR_SOFIA_BANKS: 'Dr. Sofia Banks is an upbeat banking professor who explains banking jargon, regulatory context, and fundamental concepts with clarity and enthusiasm. She helps listeners understand the "why" behind banking practices with infectious energy.',
       AVA_AGENTIC: 'Ava Agentic is a forward-thinking technologist who spots AI and digital transformation opportunities in banking. She\'s always thinking about how technology can improve banking operations and customer experience.',
       MAYA_CUSTOMER: 'Maya Customer is a customer experience expert who connects bank strategy to real customer impact. She advocates for customers and explains how banking decisions affect everyday people.'

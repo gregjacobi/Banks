@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
 import {
   Card,
   CardContent,
@@ -22,7 +23,7 @@ import PodcastGenerator from './PodcastGenerator';
  * Generates comprehensive bank analysis using Claude API
  * Includes real-time status updates and report caching
  */
-function AIResearchTab({ idrssd, bankName }) {
+function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
@@ -40,6 +41,8 @@ function AIResearchTab({ idrssd, bankName }) {
   const [streamingThinking, setStreamingThinking] = useState('');
   const [streamingText, setStreamingText] = useState('');
   const [showThinking, setShowThinking] = useState(true);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // Check for existing report, podcast, and active jobs on component mount
   useEffect(() => {
@@ -48,11 +51,11 @@ function AIResearchTab({ idrssd, bankName }) {
     checkForActiveJobs();
   }, [idrssd]);
 
-  // Poll for active report job
+  // Poll for active report job (only if not streaming)
   useEffect(() => {
     let pollInterval;
 
-    if (loading) {
+    if (loading && !isStreaming) {
       pollInterval = setInterval(() => {
         pollJobStatus('report');
       }, 2000); // Poll every 2 seconds
@@ -61,7 +64,22 @@ function AIResearchTab({ idrssd, bankName }) {
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [loading, idrssd]);
+  }, [loading, isStreaming, idrssd]);
+
+  // Update elapsed time every second when loading
+  useEffect(() => {
+    let timer;
+    if (loading) {
+      timer = setInterval(() => {
+        setElapsedSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [loading]);
 
   // Poll for active podcast job
   useEffect(() => {
@@ -83,14 +101,20 @@ function AIResearchTab({ idrssd, bankName }) {
    */
   const fetchExistingReport = async () => {
     try {
+      console.log('Fetching existing report for', idrssd);
       const response = await axios.get(`/api/research/${idrssd}/latest`);
+      console.log('Report response:', response.data);
       if (response.data.hasReport) {
         setReport(response.data.report);
         setTrendsData(response.data.report.trendsData);
         setGeneratedAt(response.data.generatedAt);
         setHasExistingReport(true);
+        console.log('Report loaded successfully');
+      } else {
+        console.log('No report found');
       }
     } catch (err) {
+      console.error('Error fetching report:', err);
       // No existing report, that's fine
       setHasExistingReport(false);
     }
@@ -105,6 +129,9 @@ function AIResearchTab({ idrssd, bankName }) {
       if (response.data.podcast) {
         setPodcastUrl(response.data.podcast.url);
         setPodcastDuration(response.data.podcast.duration);
+        if (onPodcastReady) {
+          onPodcastReady(response.data.podcast.url);
+        }
       }
     } catch (err) {
       // No podcast yet, that's fine
@@ -159,12 +186,17 @@ function AIResearchTab({ idrssd, bankName }) {
       if (jobType === 'report') {
         setStatusMessage(job.message);
         setProgress(job.progress);
+        if (job.elapsedSeconds) {
+          setElapsedSeconds(job.elapsedSeconds);
+        }
 
         if (job.status === 'completed') {
           setLoading(false);
+          setIsStreaming(false);
           await fetchExistingReport();
         } else if (job.status === 'failed') {
           setLoading(false);
+          setIsStreaming(false);
           setError(job.error || 'Report generation failed');
         }
       } else if (jobType === 'podcast') {
@@ -191,11 +223,31 @@ function AIResearchTab({ idrssd, bankName }) {
   const handlePodcastGenerated = (url, duration) => {
     setPodcastUrl(url);
     setPodcastDuration(duration);
+    if (onPodcastReady) {
+      onPodcastReady(url);
+    }
+  };
+
+  /**
+   * Cancel the current report generation job
+   */
+  const cancelGeneration = async () => {
+    try {
+      await axios.delete(`/api/research/${idrssd}/job?type=report`);
+      setLoading(false);
+      setIsStreaming(false);
+      setStreamingThinking('');
+      setStreamingText('');
+      setError('Report generation cancelled');
+    } catch (err) {
+      console.error('Error cancelling job:', err);
+      setError('Failed to cancel job');
+    }
   };
 
   /**
    * Generate new research report
-   * Uses background job system with polling
+   * Tries streaming first, falls back to polling if stream fails
    */
   const generateReport = async () => {
     try {
@@ -203,15 +255,76 @@ function AIResearchTab({ idrssd, bankName }) {
       setError(null);
       setReport(null);
       setProgress(0);
+      setElapsedSeconds(0);
+      setStreamingThinking('');
+      setStreamingText('');
       setStatusMessage('Starting report generation...');
 
-      // Start the background job
-      await axios.post(`/api/research/${idrssd}/generate-background`);
-      // Polling will handle the rest via useEffect
+      // Try streaming endpoint with EventSource (GET request)
+      try {
+        setIsStreaming(true);
+
+        const eventSource = new EventSource(`/api/research/${idrssd}/generate-stream`);
+
+        eventSource.addEventListener('status', (e) => {
+          const data = JSON.parse(e.data);
+          console.log('Status event:', data);
+          if (data.message) setStatusMessage(data.message);
+          if (data.progress !== undefined) setProgress(data.progress);
+        });
+
+        eventSource.addEventListener('thinking', (e) => {
+          const data = JSON.parse(e.data);
+          console.log('Thinking event:', data);
+          if (data.text) {
+            setStreamingThinking(prev => prev + data.text);
+          }
+        });
+
+        eventSource.addEventListener('text', (e) => {
+          const data = JSON.parse(e.data);
+          console.log('Text event:', data);
+          if (data.text) {
+            setStreamingText(prev => prev + data.text);
+          }
+        });
+
+        eventSource.addEventListener('complete', async () => {
+          console.log('Stream complete, fetching final report...');
+          setLoading(false);
+          setIsStreaming(false);
+          setStreamingThinking('');
+          setStreamingText('');
+          await fetchExistingReport();
+          eventSource.close();
+        });
+
+        eventSource.addEventListener('error', (e) => {
+          console.error('SSE error:', e);
+          setIsStreaming(false);
+          // Fall back to polling
+          pollJobStatus('report');
+          eventSource.close();
+        });
+
+        eventSource.onerror = () => {
+          console.log('EventSource connection closed');
+          eventSource.close();
+        };
+
+      } catch (streamError) {
+        console.warn('Streaming failed, falling back to background job:', streamError);
+        setIsStreaming(false);
+
+        // Fall back to background job
+        await axios.post(`/api/research/${idrssd}/generate-background`);
+        // Polling will handle the rest via useEffect
+      }
     } catch (err) {
       console.error('Error starting report generation:', err);
       setError('Failed to start report generation');
       setLoading(false);
+      setIsStreaming(false);
     }
   };
 
@@ -228,6 +341,15 @@ function AIResearchTab({ idrssd, bankName }) {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  /**
+   * Format elapsed seconds as MM:SS
+   */
+  const formatElapsedTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -335,6 +457,19 @@ function AIResearchTab({ idrssd, bankName }) {
           {/* Status Message and Progress */}
           {loading && (
             <Box sx={{ mt: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Elapsed: {formatElapsedTime(elapsedSeconds)}
+                </Typography>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={cancelGeneration}
+                  sx={{ minWidth: 80 }}
+                >
+                  Cancel
+                </Button>
+              </Box>
               <LinearProgress variant="determinate" value={progress} />
               <Typography variant="body2" sx={{ mt: 1.5, color: 'text.secondary', textAlign: 'center' }}>
                 {statusMessage} ({progress}%)
@@ -361,7 +496,24 @@ function AIResearchTab({ idrssd, bankName }) {
                   <Typography variant="caption" sx={{ fontWeight: 600, color: '#666', display: 'block', mb: 1 }}>
                     Report Preview (Streaming...)
                   </Typography>
-                  <ReportRenderer markdown={streamingText} trendsData={trendsData} idrssd={idrssd} />
+                  <Box sx={{
+                    '& h1': { fontSize: '1.5rem', fontWeight: 600, mt: 3, mb: 2 },
+                    '& h2': { fontSize: '1.25rem', fontWeight: 600, mt: 3, mb: 1.5 },
+                    '& h3': { fontSize: '1.1rem', fontWeight: 600, mt: 2, mb: 1 },
+                    '& p': { fontSize: '0.95rem', lineHeight: 1.7, mb: 1.5 },
+                    '& ul, & ol': { ml: 2, mb: 2 },
+                    '& li': { fontSize: '0.95rem', lineHeight: 1.6, mb: 0.5 },
+                    '& strong': { fontWeight: 600 },
+                    '& em': { fontStyle: 'italic' },
+                    '& code': {
+                      backgroundColor: '#f5f5f5',
+                      padding: '2px 6px',
+                      borderRadius: '3px',
+                      fontSize: '0.9rem'
+                    }
+                  }}>
+                    <ReactMarkdown>{streamingText}</ReactMarkdown>
+                  </Box>
                 </Paper>
               )}
             </Box>
@@ -412,7 +564,7 @@ function AIResearchTab({ idrssd, bankName }) {
 
             {/* Report Content with Embedded Charts */}
             <ReportRenderer
-              markdown={report.analysis}
+              markdown={report.analysis?.report || report.analysis}
               trendsData={trendsData}
               idrssd={idrssd}
             />

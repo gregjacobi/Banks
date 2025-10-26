@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Box, Typography, Paper, CircularProgress } from '@mui/material';
+import remarkGfm from 'remark-gfm';
+import { Box, Typography, Paper, CircularProgress, Link, Chip } from '@mui/material';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import axios from 'axios';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -36,14 +39,44 @@ ChartJS.register(
  */
 function ReportRenderer({ markdown, trendsData, idrssd }) {
   /**
-   * Parse custom tags from markdown (charts and leader profiles)
+   * Convert plain URLs to markdown links
+   * Matches patterns like: [1] Title - https://url.com
+   */
+  const convertUrlsToLinks = (text) => {
+    // Match source citations with URLs
+    const urlPattern = /(\[\d+\]\s+[^\n-]+ - )(https?:\/\/[^\s\n]+)/g;
+    return text.replace(urlPattern, (match, prefix, url) => {
+      return `${prefix}[${url}](${url})`;
+    });
+  };
+
+  /**
+   * Parse custom tags from markdown (charts, leader profiles, and research checklist)
    */
   const processMarkdownWithCharts = (text) => {
+    // First convert plain URLs to markdown links
+    text = convertUrlsToLinks(text);
+
     const chartTagRegex = /<chart:([\w-]+)\s*\/>/g;
     const leaderTagRegex = /<leader\s+name="([^"]+)"\s+title="([^"]+)"(?:\s+image="([^"]+)")?\s*>([\s\S]*?)<\/leader>/g;
+    const checklistTagRegex = /<research-checklist>\s*(\{[\s\S]*?\})\s*<\/research-checklist>/;
 
     const parts = [];
     let lastIndex = 0;
+
+    // Extract research checklist if present
+    const checklistMatch = text.match(checklistTagRegex);
+    let checklistData = null;
+    if (checklistMatch) {
+      try {
+        // Parse the JSON inside the tag
+        checklistData = JSON.parse(checklistMatch[1]);
+        // Remove the checklist from the text so we can display it separately
+        text = text.replace(checklistTagRegex, '');
+      } catch (e) {
+        console.error('Failed to parse research checklist JSON:', e);
+      }
+    }
 
     // Combine both regex patterns to find all custom tags in order
     const allMatches = [];
@@ -110,10 +143,10 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
       });
     }
 
-    return parts;
+    return { parts, checklistData };
   };
 
-  const parts = processMarkdownWithCharts(markdown);
+  const { parts, checklistData } = processMarkdownWithCharts(markdown);
 
   return (
     <Box>
@@ -142,6 +175,9 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
         }
         return null;
       })}
+
+      {/* Display research checklist if present */}
+      {checklistData && <ResearchChecklist data={checklistData} />}
     </Box>
   );
 }
@@ -261,10 +297,25 @@ function MarkdownSection({ content }) {
       }}
     >
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <Typography component="p"><CitationText>{children}</CitationText></Typography>,
           li: ({ children }) => <li><CitationText>{children}</CitationText></li>,
-          td: ({ children }) => <td><CitationText>{children}</CitationText></td>
+          td: ({ children }) => <td><CitationText>{children}</CitationText></td>,
+          a: ({ href, children }) => (
+            <Link
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                color: '#667eea',
+                textDecoration: 'none',
+                '&:hover': { textDecoration: 'underline' }
+              }}
+            >
+              {children}
+            </Link>
+          )
         }}
       >
         {content}
@@ -638,8 +689,21 @@ function RatioChart({ trendsData, ratioKey, title }) {
     return <Typography>No ratio data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => p.period);
-  const data = trendsData.periods.map(p => p.ratios?.[ratioKey] || null);
+  // Filter out null values for operating leverage
+  const filteredData = trendsData.periods
+    .map((p, idx) => ({
+      label: p.period,
+      value: p.ratios?.[ratioKey] ?? null,
+      originalIndex: idx
+    }))
+    .filter(d => d.value !== null);
+
+  if (filteredData.length === 0) {
+    return <Typography>No {title} data available</Typography>;
+  }
+
+  const labels = filteredData.map(d => d.label);
+  const data = filteredData.map(d => d.value);
 
   const chartData = {
     labels,
@@ -669,10 +733,12 @@ function RatioChart({ trendsData, ratioKey, title }) {
     scales: {
       y: {
         beginAtZero: ratioKey === 'operatingLeverage' ? false : true,
-        grid: { color: '#e8e8e8', lineWidth: 0.5 }
+        grid: { color: '#e8e8e8', lineWidth: 0.5 },
+        ticks: { font: { size: 10 } }
       },
       x: {
-        grid: { display: false }
+        grid: { display: false },
+        ticks: { font: { size: 10 } }
       }
     }
   };
@@ -808,48 +874,55 @@ function NetIncomeYoYChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
-  const yearGroups = {};
-  trendsData.periods.forEach(period => {
-    const date = new Date(period.reportingPeriod);
-    const year = date.getFullYear();
-    const quarter = Math.ceil((date.getMonth() + 1) / 3);
-
-    if (!yearGroups[year]) yearGroups[year] = {};
-    yearGroups[year][`Q${quarter}`] = (period.incomeStatement?.netIncome || 0) / 1000;
+  // Group by year
+  const incomeByYear = {};
+  trendsData.periods.forEach(p => {
+    const [year, quarter] = p.period.split(' ');
+    const q = parseInt(quarter.replace('Q', ''));
+    if (!incomeByYear[year]) incomeByYear[year] = {};
+    incomeByYear[year][q] = (p.income.netIncome / 1000).toFixed(2);
   });
 
-  const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
-  const chartData = quarters.map(q => {
-    const dataPoint = { quarter: q };
-    Object.keys(yearGroups).sort().forEach(year => {
-      dataPoint[year] = yearGroups[year][q] || null;
-    });
-    return dataPoint;
-  });
+  const years = Object.keys(incomeByYear).sort((a, b) => b - a);
+  const blueShades = ['#0d47a1', '#1976d2', '#42a5f5', '#90caf9', '#bbdefb', '#e3f2fd'];
 
-  const years = Object.keys(yearGroups).sort().reverse();
-  const blueShades = ['#0d47a1', '#1976d2', '#42a5f5', '#90caf9', '#bbdefb'];
-
-  const datasets = years.map((year, idx) => ({
-    label: year,
-    data: quarters.map(q => yearGroups[year][q] || null),
-    borderColor: blueShades[idx % blueShades.length],
-    backgroundColor: blueShades[idx % blueShades.length],
-    tension: 0.1
-  }));
+  const chartData = {
+    labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+    datasets: years.map((year, index) => ({
+      label: year,
+      data: [1, 2, 3, 4].map(q => incomeByYear[year]?.[q] || null),
+      borderColor: blueShades[index] || blueShades[blueShades.length - 1],
+      borderWidth: index === 0 ? 2 : 1.5,
+      fill: false,
+      tension: 0.2,
+      pointRadius: index === 0 ? 3 : 0,
+      pointHoverRadius: 4,
+      spanGaps: true
+    }))
+  };
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
-      title: { display: true, text: 'Net Income by Year (YTD Quarterly in $M)' },
-      legend: { position: 'top' }
+      legend: { display: true, position: 'bottom', labels: { font: { size: 10 }, padding: 10 } },
+      title: {
+        display: true,
+        text: 'Net Income - Quarterly Comparison by Year (Millions $)',
+        font: { size: 14, weight: 600 }
+      }
     },
     scales: {
-      y: { title: { display: true, text: 'Net Income ($M)' } }
+      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      y: { grid: { color: '#e8e8e8', lineWidth: 0.5 }, ticks: { font: { size: 10 } } }
     }
   };
 
-  return <Line data={{ labels: quarters, datasets }} options={options} />;
+  return (
+    <Box sx={{ height: 300 }}>
+      <Line data={chartData} options={options} />
+    </Box>
+  );
 }
 
 function IncomeBreakdownChart({ trendsData }) {
@@ -857,22 +930,19 @@ function IncomeBreakdownChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => {
-    const date = new Date(p.reportingPeriod);
-    return `${date.getFullYear()} Q${Math.ceil((date.getMonth() + 1) / 3)}`;
-  });
+  const labels = trendsData.periods.map(p => p.period);
 
   const data = {
     labels,
     datasets: [
       {
         label: 'Net Interest Income',
-        data: trendsData.periods.map(p => (p.incomeStatement?.netInterestIncome || 0) / 1000),
+        data: trendsData.periods.map(p => (p.income.netInterestIncome / 1000).toFixed(0)),
         backgroundColor: '#1976d2'
       },
       {
         label: 'Non-Interest Income',
-        data: trendsData.periods.map(p => (p.incomeStatement?.noninterestIncome?.total || 0) / 1000),
+        data: trendsData.periods.map(p => (p.income.nonInterestIncome / 1000).toFixed(0)),
         backgroundColor: '#82ca9d'
       }
     ]
@@ -880,16 +950,27 @@ function IncomeBreakdownChart({ trendsData }) {
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
-      title: { display: true, text: 'Interest vs. Non-Interest Income (YTD in $M)' },
-      legend: { position: 'top' }
+      title: { display: true, text: 'Revenue Trends: Interest vs. Non-Interest Income ($M)', font: { size: 14, weight: 600 } },
+      legend: { position: 'bottom', labels: { font: { size: 10 }, padding: 10 } }
     },
     scales: {
-      y: { title: { display: true, text: 'Amount ($M)' } }
+      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      y: {
+        stacked: true,
+        grid: { color: '#e8e8e8', lineWidth: 0.5 },
+        ticks: { font: { size: 10 } }
+      },
+      x: { stacked: true }
     }
   };
 
-  return <Bar data={data} options={options} />;
+  return (
+    <Box sx={{ height: 300 }}>
+      <Bar data={data} options={options} />
+    </Box>
+  );
 }
 
 function ExpenseBreakdownChart({ trendsData }) {
@@ -897,45 +978,74 @@ function ExpenseBreakdownChart({ trendsData }) {
     return <Typography>No expense data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => {
-    const date = new Date(p.reportingPeriod);
-    return `${date.getFullYear()} Q${Math.ceil((date.getMonth() + 1) / 3)}`;
-  });
+  // Check if any period has expenses data
+  const hasExpenses = trendsData.periods.some(p => p.expenses);
+  if (!hasExpenses) {
+    return <Typography>No expense data available</Typography>;
+  }
+
+  const labels = trendsData.periods.map(p => p.period);
 
   const data = {
     labels,
     datasets: [
       {
         label: 'Salaries & Benefits',
-        data: trendsData.periods.map(p => (p.incomeStatement?.noninterestExpense?.salariesAndBenefits || 0) / 1000),
-        backgroundColor: '#ff8042'
+        data: trendsData.periods.map(p => p.expenses?.salariesAndBenefits ? (p.expenses.salariesAndBenefits / 1000).toFixed(0) : 0),
+        backgroundColor: 'rgba(2, 136, 209, 0.7)',
+        borderColor: '#0288d1',
+        borderWidth: 1
       },
       {
-        label: 'Premises Expense',
-        data: trendsData.periods.map(p => (p.incomeStatement?.noninterestExpense?.premisesExpense || 0) / 1000),
-        backgroundColor: '#ffbb28'
+        label: 'Occupancy',
+        data: trendsData.periods.map(p => p.expenses?.occupancy ? (p.expenses.occupancy / 1000).toFixed(0) : 0),
+        backgroundColor: 'rgba(56, 142, 60, 0.7)',
+        borderColor: '#388e3c',
+        borderWidth: 1
       },
       {
         label: 'Other Expenses',
-        data: trendsData.periods.map(p => (p.incomeStatement?.noninterestExpense?.other || 0) / 1000),
-        backgroundColor: '#8884d8'
+        data: trendsData.periods.map(p => p.expenses?.other ? (p.expenses.other / 1000).toFixed(0) : 0),
+        backgroundColor: 'rgba(211, 47, 47, 0.7)',
+        borderColor: '#d32f2f',
+        borderWidth: 1
       }
     ]
   };
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
-      title: { display: true, text: 'Operating Expenses Breakdown (YTD in $M)' },
-      legend: { position: 'top' }
+      title: {
+        display: true,
+        text: 'Operating Expenses Breakdown ($M)',
+        font: { size: 14, weight: 600 }
+      },
+      legend: {
+        position: 'bottom',
+        labels: { font: { size: 10 }, padding: 10 }
+      }
     },
     scales: {
-      x: { stacked: true },
-      y: { stacked: true, title: { display: true, text: 'Amount ($M)' } }
+      x: {
+        stacked: true,
+        grid: { display: false },
+        ticks: { font: { size: 10 } }
+      },
+      y: {
+        stacked: true,
+        grid: { color: '#e8e8e8', lineWidth: 0.5 },
+        ticks: { font: { size: 10 } }
+      }
     }
   };
 
-  return <Bar data={data} options={options} />;
+  return (
+    <Box sx={{ height: 300 }}>
+      <Bar data={data} options={options} />
+    </Box>
+  );
 }
 
 function FTETrendsChart({ trendsData }) {
@@ -943,36 +1053,50 @@ function FTETrendsChart({ trendsData }) {
     return <Typography>No FTE data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => {
-    const date = new Date(p.reportingPeriod);
-    return `${date.getFullYear()} Q${Math.ceil((date.getMonth() + 1) / 3)}`;
-  });
+  const labels = trendsData.periods.map(p => p.period);
+  const fteData = trendsData.periods.map(p => p.fte || 0);
 
   const data = {
     labels,
     datasets: [
       {
-        label: 'FTE Count',
-        data: trendsData.periods.map(p => p.incomeStatement?.fullTimeEquivalentEmployees || 0),
-        borderColor: '#8884d8',
-        backgroundColor: '#8884d8',
-        tension: 0.1
+        label: 'Full-Time Equivalent Employees',
+        data: fteData,
+        backgroundColor: 'rgba(2, 136, 209, 0.7)',
+        borderColor: '#0288d1',
+        borderWidth: 1
       }
     ]
   };
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
-      title: { display: true, text: 'Full-Time Equivalent Employees' },
-      legend: { position: 'top' }
+      title: {
+        display: true,
+        text: 'Full-Time Equivalent Employees',
+        font: { size: 14, weight: 600 }
+      },
+      legend: { display: false }
     },
     scales: {
-      y: { title: { display: true, text: 'FTE Count' } }
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10 } }
+      },
+      y: {
+        grid: { color: '#e8e8e8', lineWidth: 0.5 },
+        ticks: { font: { size: 10 } }
+      }
     }
   };
 
-  return <Line data={data} options={options} />;
+  return (
+    <Box sx={{ height: 300 }}>
+      <Bar data={data} options={options} />
+    </Box>
+  );
 }
 
 // Peer Comparison Chart Component
@@ -1083,6 +1207,237 @@ function PeerComparisonChart({ idrssd, trendsData, metric, title, lowerBetter = 
     <Box sx={{ height: Math.max(400, sortedBanks.length * 20) }}>
       <Bar data={data} options={options} />
     </Box>
+  );
+}
+
+/**
+ * ResearchChecklist - Displays the research source checklist
+ * Shows which priority sources were found during the research process
+ */
+function ResearchChecklist({ data }) {
+  const checklistItems = [
+    {
+      key: 'investorPresentation',
+      label: 'Recent Investor Presentation (Last 12 Months)',
+      icon: '📊'
+    },
+    {
+      key: 'earningsCallTranscript',
+      label: 'Earnings Call Transcript',
+      icon: '📞'
+    },
+    {
+      key: 'executiveInterviews',
+      label: 'Business Interviews with C-Suite Executives',
+      icon: '💼'
+    },
+    {
+      key: 'recentNews',
+      label: 'Major News Stories (Last 3 Months)',
+      icon: '📰'
+    },
+    {
+      key: 'aiProjects',
+      label: 'Evidence of AI Projects or Partnerships',
+      icon: '🤖'
+    }
+  ];
+
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        p: 3,
+        my: 4,
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        borderRadius: 2
+      }}
+    >
+      <Typography
+        variant="h5"
+        sx={{
+          fontWeight: 600,
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}
+      >
+        🔍 Research Source Checklist
+      </Typography>
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {checklistItems.map((item) => {
+          const itemData = data[item.key];
+          const found = itemData?.found || false;
+
+          return (
+            <Paper
+              key={item.key}
+              elevation={2}
+              sx={{
+                p: 2.5,
+                backgroundColor: 'white',
+                borderRadius: 2,
+                border: found ? '2px solid #4caf50' : '2px solid #f44336'
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                {/* Icon and status */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 60 }}>
+                  <Box sx={{ fontSize: '2rem', mb: 0.5 }}>
+                    {item.icon}
+                  </Box>
+                  {found ? (
+                    <Chip
+                      icon={<CheckCircleIcon />}
+                      label="Found"
+                      size="small"
+                      sx={{
+                        backgroundColor: '#4caf50',
+                        color: 'white',
+                        fontWeight: 600
+                      }}
+                    />
+                  ) : (
+                    <Chip
+                      icon={<CancelIcon />}
+                      label="Not Found"
+                      size="small"
+                      sx={{
+                        backgroundColor: '#f44336',
+                        color: 'white',
+                        fontWeight: 600
+                      }}
+                    />
+                  )}
+                </Box>
+
+                {/* Content */}
+                <Box sx={{ flex: 1 }}>
+                  <Typography
+                    variant="subtitle1"
+                    sx={{
+                      fontWeight: 600,
+                      color: '#333',
+                      mb: 1
+                    }}
+                  >
+                    {item.label}
+                  </Typography>
+
+                  {/* Details based on item type */}
+                  {found && (
+                    <Box sx={{ mb: 1 }}>
+                      {/* Investor Presentation */}
+                      {item.key === 'investorPresentation' && itemData.date && (
+                        <Typography variant="body2" sx={{ color: '#555', mb: 0.5 }}>
+                          <strong>Date:</strong> {itemData.date}
+                        </Typography>
+                      )}
+
+                      {/* Earnings Call */}
+                      {item.key === 'earningsCallTranscript' && itemData.quarter && (
+                        <Typography variant="body2" sx={{ color: '#555', mb: 0.5 }}>
+                          <strong>Quarter:</strong> {itemData.quarter}
+                        </Typography>
+                      )}
+
+                      {/* Executive Interviews */}
+                      {item.key === 'executiveInterviews' && itemData.count > 0 && (
+                        <>
+                          <Typography variant="body2" sx={{ color: '#555', mb: 0.5 }}>
+                            <strong>Found:</strong> {itemData.count} interview{itemData.count !== 1 ? 's' : ''}
+                          </Typography>
+                          {itemData.examples && itemData.examples.length > 0 && (
+                            <Box sx={{ ml: 2, mt: 0.5 }}>
+                              {itemData.examples.slice(0, 3).map((example, idx) => (
+                                <Typography key={idx} variant="body2" sx={{ color: '#666', fontSize: '0.85rem' }}>
+                                  • {example}
+                                </Typography>
+                              ))}
+                            </Box>
+                          )}
+                        </>
+                      )}
+
+                      {/* Recent News */}
+                      {item.key === 'recentNews' && itemData.count > 0 && (
+                        <>
+                          <Typography variant="body2" sx={{ color: '#555', mb: 0.5 }}>
+                            <strong>Stories Found:</strong> {itemData.count}
+                          </Typography>
+                          {itemData.majorStories && itemData.majorStories.length > 0 && (
+                            <Box sx={{ ml: 2, mt: 0.5 }}>
+                              {itemData.majorStories.slice(0, 3).map((story, idx) => (
+                                <Typography key={idx} variant="body2" sx={{ color: '#666', fontSize: '0.85rem' }}>
+                                  • {story}
+                                </Typography>
+                              ))}
+                            </Box>
+                          )}
+                        </>
+                      )}
+
+                      {/* AI Projects */}
+                      {item.key === 'aiProjects' && itemData.initiatives && itemData.initiatives.length > 0 && (
+                        <Box sx={{ ml: 2, mt: 0.5 }}>
+                          {itemData.initiatives.slice(0, 3).map((initiative, idx) => (
+                            <Typography key={idx} variant="body2" sx={{ color: '#666', fontSize: '0.85rem' }}>
+                              • {initiative}
+                            </Typography>
+                          ))}
+                        </Box>
+                      )}
+
+                      {/* Source URL/Description */}
+                      {itemData.source && (
+                        <Typography variant="body2" sx={{ color: '#555', fontSize: '0.85rem', mt: 0.5 }}>
+                          <strong>Source:</strong> {itemData.source}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Notes */}
+                  {itemData?.notes && (
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color: '#666',
+                        fontStyle: 'italic',
+                        fontSize: '0.9rem',
+                        mt: 1,
+                        p: 1.5,
+                        backgroundColor: '#f5f5f5',
+                        borderRadius: 1,
+                        borderLeft: found ? '3px solid #4caf50' : '3px solid #f44336'
+                      }}
+                    >
+                      {itemData.notes}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Paper>
+          );
+        })}
+      </Box>
+
+      <Box
+        sx={{
+          mt: 3,
+          pt: 2,
+          borderTop: '1px solid rgba(255, 255, 255, 0.3)'
+        }}
+      >
+        <Typography variant="body2" sx={{ fontSize: '0.85rem', opacity: 0.9 }}>
+          This checklist shows which priority research sources were successfully found during the AI-powered research process.
+          These sources provide the deepest insights into the bank's strategy, performance, and future direction.
+        </Typography>
+      </Box>
+    </Paper>
   );
 }
 

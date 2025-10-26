@@ -34,9 +34,15 @@ Use industry terminology appropriately but explain complex concepts clearly.`,
 
 **Your Task:**
 1. Review all provided financial trend data (assets, lending portfolio, income, ratios)
-2. Search for recent news articles about this bank (last 6 months)
-3. Find and analyze their latest investor presentation or earnings materials
-4. **Search job postings** to understand hiring strategy:
+2. **PRIORITY RESEARCH - Track your findings for the Research Checklist:**
+   - Search for recent investor presentations (last 12 months)
+   - Search for earnings call transcripts
+   - Search for business interviews with C-suite executives
+   - Search for major news stories (last 3 months)
+   - Search for evidence of AI projects, partnerships, or initiatives
+3. Search for additional context: recent news articles about this bank (last 6 months)
+4. Find and analyze their latest investor presentation or earnings materials
+5. **Search job postings** to understand hiring strategy:
    - Search: "{bankName} jobs LinkedIn" and "{bankName} careers"
    - Focus on: Volume of openings, departments hiring, tech roles and stack
    - Look for patterns in job titles, required skills, and technologies mentioned
@@ -199,11 +205,19 @@ How does the target bank's strategy compare to what peers are doing?
 # Leadership and Key Players
 **IMPORTANT:** For each executive, use the <leader> tag with professional headshot.
 
-Search for headshots on:
-- Bank's leadership page
-- LinkedIn profiles
-- Press releases and news articles
-- Company investor relations pages
+**CRITICAL - Photo Search Strategy:**
+You MUST perform dedicated web searches to find executive photos. Use search queries like:
+- "[Executive Name] [Bank Name] photo"
+- "[Executive Name] [Bank Name] headshot"
+- "[Executive Name] CEO [Bank Name]"
+- "[Executive Name] LinkedIn profile picture"
+
+Search these sources systematically for EACH executive:
+1. **LinkedIn profiles** - Search "[Name] [Bank Name] LinkedIn" and extract profile photo URL
+2. **Bank's leadership/about page** - Search "[Bank Name] leadership team" or "[Bank Name] about us executives"
+3. **Press releases and news articles** - Search "[Name] [Bank Name] news" - often contain executive photos
+4. **Industry publications** - Banking journals, local business journals often feature executive profiles
+5. **Google Images** - Search "[Name] [Bank Name]" in images specifically
 
 **Format each leader profile exactly like this (write tags directly, NOT in code blocks):**
 
@@ -218,7 +232,7 @@ Brief bio including background, tenure, key initiatives, and strategic focus. In
 - **Business Line Leaders:** Heads of consumer banking, commercial banking, wealth management
 - **Notable Board Members:** Directors with relevant expertise
 
-If no headshot is found, omit the image attribute but still use the tag.
+**If you cannot find a photo after thorough searching, leave the image attribute empty:** image=""
 
 # Hiring Trends and Talent Strategy
 **IMPORTANT:** Search job postings and analyze:
@@ -251,6 +265,52 @@ If no headshot is found, omit the image attribute but still use the tag.
 - Key risks to monitor
 - Growth opportunities
 - Strategic recommendations
+
+# Research Source Checklist
+
+**IMPORTANT:** You MUST include this checklist at the end of your report showing which key sources you were able to find during your research. Use this exact format:
+
+<research-checklist>
+{
+  "investorPresentation": {
+    "found": true/false,
+    "date": "Month YYYY" or null,
+    "source": "URL or description" or null,
+    "notes": "Brief description of what was found"
+  },
+  "earningsCallTranscript": {
+    "found": true/false,
+    "quarter": "Q# YYYY" or null,
+    "source": "URL or description" or null,
+    "notes": "Brief description"
+  },
+  "executiveInterviews": {
+    "found": true/false,
+    "count": number,
+    "examples": ["Brief description of interview 1", "Interview 2"] or [],
+    "notes": "Summary of interviews found"
+  },
+  "recentNews": {
+    "found": true/false,
+    "count": number,
+    "majorStories": ["Brief headline 1", "Headline 2"] or [],
+    "notes": "Summary of major news in last 3 months"
+  },
+  "aiProjects": {
+    "found": true/false,
+    "initiatives": ["Initiative 1", "Initiative 2"] or [],
+    "source": "URL or description" or null,
+    "notes": "Summary of AI/tech initiatives found"
+  }
+}
+</research-checklist>
+
+**Instructions for the checklist:**
+- Set "found" to true ONLY if you actually discovered relevant sources during your web searches
+- Include specific dates, quarters, or timeframes when available
+- Provide URLs or specific source descriptions in the "source" field
+- Be honest: if you couldn't find something, set "found" to false
+- The notes field should briefly explain what you found or why you couldn't find it
 
 # Sources
 List all web sources with:

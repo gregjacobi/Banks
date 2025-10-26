@@ -281,10 +281,55 @@ class ClaudeService {
 
     // Add search instructions
     const currentYear = new Date().getFullYear();
+    const lastYear = currentYear - 1;
+    const currentMonth = new Date().toLocaleString('default', { month: 'long' });
     prompt += `\n## Research Instructions\n\n`;
-    prompt += `**IMPORTANT:** Conduct thorough web searches to gather comprehensive intelligence:\n\n`;
+    prompt += `**IMPORTANT:** Conduct thorough web searches to gather comprehensive intelligence. Pay special attention to the PRIORITY items needed for the Research Checklist:\n\n`;
 
-    prompt += `### 1. Job Postings & Hiring Strategy (HIGH PRIORITY)\n`;
+    prompt += `### 1. PRIORITY: Investor Presentations (Last 12 Months)\n`;
+    prompt += `**CRITICAL FOR CHECKLIST** - Search extensively:\n`;
+    prompt += `- "${name}" investor presentation ${currentYear}\n`;
+    prompt += `- "${name}" investor day ${currentYear} ${lastYear}\n`;
+    prompt += `- "${name}" investor relations presentation PDF\n`;
+    prompt += `- "${name}" annual report ${currentYear}\n`;
+    prompt += `- "${name}" bank investor deck\n`;
+    prompt += `**Document:** If found, note the date and URL for the checklist\n\n`;
+
+    prompt += `### 2. PRIORITY: Earnings Call Transcripts\n`;
+    prompt += `**CRITICAL FOR CHECKLIST** - Search for:\n`;
+    prompt += `- "${name}" earnings call transcript Q1 Q2 Q3 Q4 ${currentYear}\n`;
+    prompt += `- "${name}" quarterly earnings ${currentYear}\n`;
+    prompt += `- "${name}" earnings release ${currentYear}\n`;
+    prompt += `- "${name}" financial results conference call\n`;
+    prompt += `**Document:** If found, note the quarter and year for the checklist\n\n`;
+
+    prompt += `### 3. PRIORITY: Executive Interviews & C-Suite Coverage\n`;
+    prompt += `**CRITICAL FOR CHECKLIST** - Search for:\n`;
+    prompt += `- "${name}" CEO interview ${currentYear}\n`;
+    prompt += `- "${name}" CFO interview ${currentYear}\n`;
+    prompt += `- "${name}" executive interview American Banker\n`;
+    prompt += `- "${name}" CEO ${city} business journal interview\n`;
+    prompt += `- "${name}" leadership profile Forbes Fortune Bloomberg\n`;
+    prompt += `**Document:** Count how many interviews you find and note examples\n\n`;
+
+    prompt += `### 4. PRIORITY: Major News (Last 3 Months)\n`;
+    prompt += `**CRITICAL FOR CHECKLIST** - Search for recent news:\n`;
+    prompt += `- "${name}" bank news ${currentMonth} ${currentYear}\n`;
+    prompt += `- "${name}" ${state} news after:${currentYear}-${String(new Date().getMonth() - 2).padStart(2, '0')}-01\n`;
+    prompt += `- "${name}" announcement ${currentYear}\n`;
+    prompt += `- "${name}" acquisition merger partnership ${currentYear}\n`;
+    prompt += `**Document:** Count major stories and list headlines for the checklist\n\n`;
+
+    prompt += `### 5. PRIORITY: AI Projects & Technology Partnerships\n`;
+    prompt += `**CRITICAL FOR CHECKLIST** - Search specifically for:\n`;
+    prompt += `- "${name}" artificial intelligence AI machine learning\n`;
+    prompt += `- "${name}" AI partnership project initiative\n`;
+    prompt += `- "${name}" fintech partnership technology\n`;
+    prompt += `- "${name}" digital transformation AI strategy\n`;
+    prompt += `- "${name}" innovation lab AI center\n`;
+    prompt += `**Document:** List any AI projects, partnerships, or initiatives found\n\n`;
+
+    prompt += `### 6. Job Postings & Hiring Strategy\n`;
     prompt += `Search multiple sources:\n`;
     prompt += `- "${name}" jobs site:linkedin.com\n`;
     prompt += `- "${name}" careers openings\n`;
@@ -292,38 +337,30 @@ class ClaudeService {
     prompt += `- "${name}" jobs technology stack AWS Azure Python Java\n`;
     prompt += `**Analyze:** Volume of openings, departments hiring, tech stack mentioned, seniority levels\n\n`;
 
-    prompt += `### 2. Recent News & Market Context\n`;
+    prompt += `### 7. Additional Market Context\n`;
     prompt += `- "${name}" bank news ${state} ${currentYear}\n`;
-    prompt += `- "${name}" acquisition merger partnership ${currentYear}\n`;
     prompt += `- "${name}" regulatory filing OCC FDIC ${currentYear}\n`;
     prompt += `- "${name}" branch expansion closure ${currentYear}\n\n`;
 
-    prompt += `### 3. Investor Relations & Strategy\n`;
-    prompt += `- "${name}" investor relations presentation earnings\n`;
-    prompt += `- "${name}" quarterly earnings Q1 Q2 Q3 Q4 ${currentYear}\n`;
-    prompt += `- "${name}" bank strategic priorities annual report\n`;
-    prompt += `- "${name}" investor day presentation\n\n`;
-
-    prompt += `### 4. Leadership Intelligence\n`;
+    prompt += `### 9. Leadership Intelligence\n`;
     prompt += `- "${name}" CEO executive team leadership\n`;
     prompt += `- "${name}" CTO CIO Chief Digital Officer Chief Technology\n`;
     prompt += `- "${name}" Chief AI Officer innovation digital transformation\n`;
     prompt += `- "${name}" board of directors\n`;
     prompt += `- Search for executive LinkedIn profiles and recent interviews\n\n`;
 
-    prompt += `### 5. Technology & Digital Strategy\n`;
+    prompt += `### 10. Technology & Digital Strategy\n`;
     prompt += `- "${name}" digital banking mobile app technology\n`;
-    prompt += `- "${name}" artificial intelligence machine learning AI\n`;
     prompt += `- "${name}" cloud migration AWS Azure Google Cloud\n`;
     prompt += `- "${name}" fintech partnership API platform\n\n`;
 
-    prompt += `### 6. Press Releases & Announcements\n`;
+    prompt += `### 11. Press Releases & Announcements\n`;
     prompt += `- "${name}" press release ${currentYear}\n`;
     prompt += `- "${name}" announcement product launch new service\n\n`;
 
     // Add peer bank news searches if peer data is available
     if (peerData && peerData.peerBanks && peerData.peerBanks.length > 0) {
-      prompt += `### 7. Peer Bank Intelligence (HIGH PRIORITY)\n`;
+      prompt += `### 12. Peer Bank Intelligence\n`;
       prompt += `**Search for news about peer banks to understand competitive dynamics:**\n`;
 
       // Get top 5 peers by asset size (excluding target)
@@ -339,7 +376,7 @@ class ClaudeService {
     }
 
     if (!website) {
-      const sectionNum = peerData ? '8' : '7';
+      const sectionNum = peerData ? '13' : '12';
       prompt += `### ${sectionNum}. Bank Website & Career Portal\n`;
       prompt += `- "${name}" bank ${city} ${state} official website\n`;
       prompt += `- "${name}" careers jobs portal\n\n`;
