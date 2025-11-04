@@ -35,25 +35,85 @@ import {
  */
 const Sparkline = ({ data, width = 100, height = 24, color = '#1976d2', showDot = true, periods = [] }) => {
   const [tooltip, setTooltip] = React.useState({ show: false, x: 0, y: 0, value: 0, period: '' });
+  const containerRef = React.useRef(null);
+  const [dimensions, setDimensions] = React.useState({ width: typeof width === 'number' ? width : 100, height: typeof height === 'number' ? height : 24 });
+
+  React.useEffect(() => {
+    if (width === '100%' || height === '100%') {
+      const updateDimensions = () => {
+        if (containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          setDimensions({
+            width: Math.max(rect.width || 100, 100),
+            height: Math.max(rect.height || 24, 24)
+          });
+        }
+      };
+      
+      // Initial update after render
+      const timeoutId = setTimeout(updateDimensions, 0);
+      
+      // Use ResizeObserver for better performance
+      let resizeObserver = null;
+      let usingWindowResize = false;
+      
+      const setupObserver = () => {
+        if (containerRef.current && window.ResizeObserver) {
+          resizeObserver = new ResizeObserver(updateDimensions);
+          resizeObserver.observe(containerRef.current);
+        } else {
+          // Fallback to window resize
+          usingWindowResize = true;
+          window.addEventListener('resize', updateDimensions);
+        }
+      };
+      
+      // Setup observer after a brief delay to ensure ref is attached
+      const observerTimeoutId = setTimeout(setupObserver, 10);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        clearTimeout(observerTimeoutId);
+        if (resizeObserver) {
+          resizeObserver.disconnect();
+        }
+        if (usingWindowResize) {
+          window.removeEventListener('resize', updateDimensions);
+        }
+      };
+    }
+  }, [width, height]);
 
   if (!data || data.length === 0) return null;
 
-  const values = data.filter(v => v !== null && v !== undefined && !isNaN(v));
+  // Filter out null values and create mapping from filtered index to original index
+  const filteredIndices = [];
+  const values = [];
+  data.forEach((v, originalIndex) => {
+    if (v !== null && v !== undefined && !isNaN(v)) {
+      filteredIndices.push(originalIndex);
+      values.push(v);
+    }
+  });
+
   if (values.length === 0) return null;
 
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
 
+  const actualWidth = dimensions.width;
+  const actualHeight = dimensions.height;
+
   const points = values.map((value, i) => {
-    const x = (i / Math.max(values.length - 1, 1)) * width;
-    const y = height - ((value - min) / range) * height;
+    const x = (i / Math.max(values.length - 1, 1)) * actualWidth;
+    const y = actualHeight - ((value - min) / range) * actualHeight;
     return `${x},${y}`;
   }).join(' ');
 
   const lastValue = values[values.length - 1];
-  const lastX = width;
-  const lastY = height - ((lastValue - min) / range) * height;
+  const lastX = actualWidth;
+  const lastY = actualHeight - ((lastValue - min) / range) * actualHeight;
 
   const formatNumber = (num) => {
     return new Intl.NumberFormat('en-US', {
@@ -74,18 +134,19 @@ const Sparkline = ({ data, width = 100, height = 24, color = '#1976d2', showDot 
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const dataIndex = Math.round((x / width) * (values.length - 1));
+    const filteredIndex = Math.round((x / actualWidth) * (values.length - 1));
 
-    if (dataIndex >= 0 && dataIndex < values.length) {
-      const pointX = (dataIndex / Math.max(values.length - 1, 1)) * width;
-      const pointY = height - ((values[dataIndex] - min) / range) * height;
+    if (filteredIndex >= 0 && filteredIndex < values.length) {
+      const originalIndex = filteredIndices[filteredIndex];
+      const pointX = (filteredIndex / Math.max(values.length - 1, 1)) * actualWidth;
+      const pointY = actualHeight - ((values[filteredIndex] - min) / range) * actualHeight;
 
       setTooltip({
         show: true,
         x: pointX,
         y: pointY,
-        value: values[dataIndex],
-        period: periods[dataIndex] ? formatPeriod(periods[dataIndex]) : `Period ${dataIndex + 1}`
+        value: values[filteredIndex],
+        period: periods[originalIndex] ? formatPeriod(periods[originalIndex]) : `Period ${originalIndex + 1}`
       });
     }
   };
@@ -95,13 +156,24 @@ const Sparkline = ({ data, width = 100, height = 24, color = '#1976d2', showDot 
   };
 
   return (
-    <Box sx={{ position: 'relative', display: 'inline-block' }}>
+    <Box 
+      ref={containerRef}
+      sx={{ 
+        position: 'relative', 
+        display: 'block',
+        width: width === '100%' ? '100%' : width,
+        height: height === '100%' ? '100%' : height,
+        minHeight: typeof height === 'number' ? height : 60
+      }}
+    >
       <svg
-        width={width}
-        height={height}
-        style={{ verticalAlign: 'middle', display: 'inline-block', cursor: 'crosshair' }}
+        width={actualWidth}
+        height={actualHeight}
+        style={{ verticalAlign: 'middle', display: 'block', cursor: 'crosshair', width: '100%', height: '100%' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        viewBox={`0 0 ${actualWidth} ${actualHeight}`}
+        preserveAspectRatio="none"
       >
         <polyline
           points={points}
@@ -192,13 +264,18 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
       }
 
       try {
-        const promises = availablePeriods.map(period =>
+        // Sort periods chronologically (oldest first) for proper chart ordering
+        const sortedPeriods = [...availablePeriods].sort((a, b) =>
+          new Date(a) - new Date(b)
+        );
+
+        const promises = sortedPeriods.map(period =>
           axios.get(`/api/banks/${idrssd}?period=${period}`)
         );
         const responses = await Promise.all(promises);
         const data = responses.map(response => response.data.financialStatement);
-        // Reverse to get oldest first (for proper sparkline direction)
-        setTrendsData(data.reverse());
+        // Data is now already in chronological order (oldest to newest)
+        setTrendsData(data);
       } catch (error) {
         console.error('Error fetching trends:', error);
       } finally {
@@ -221,10 +298,13 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
     return <Typography>No trend data available</Typography>;
   }
 
-  // Extract time series data (data is now oldest to newest after reverse)
+  // Extract time series data (data is now oldest to newest)
   const periods = trendsData.length;
-  const latest = trendsData[trendsData.length - 1];  // Most recent is now at the end
+  const latest = trendsData[trendsData.length - 1];  // Most recent is at the end
   const oldest = trendsData[0];  // Oldest is at the beginning
+
+  // Create chronologically sorted periods array for Sparklines
+  const sortedPeriods = trendsData.map(d => d.reportingPeriod);
 
   // Balance Sheet Metrics
   const totalAssetsData = trendsData.map(d => d.balanceSheet.assets.totalAssets / 1000);
@@ -539,7 +619,7 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
             <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
               ${formatNumber(totalLoans / 1000000)}B
             </Typography>
-            <Sparkline data={loansData} color="#1976d2" width={100} height={24} periods={availablePeriods} />
+            <Sparkline data={loansData} color="#1976d2" width={100} height={24} periods={sortedPeriods} />
           </Box>
         </Box>
 
@@ -645,7 +725,7 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                     {((category.value / totalLoans) * 100).toFixed(1)}%
                   </Typography>
                   <Box sx={{ width: 80, mr: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Sparkline data={category.data} color={category.color} width={70} height={18} periods={availablePeriods} />
+                    <Sparkline data={category.data} color={category.color} width={70} height={18} periods={sortedPeriods} />
                   </Box>
                   <Typography sx={{ fontSize: '0.7rem', width: 70, color: category.cagr1y > 0 ? '#2e7d32' : category.cagr1y < 0 ? '#d32f2f' : 'text.secondary', textAlign: 'right', mr: 1 }}>
                     {category.cagr1y !== null ? formatPercent(category.cagr1y) : '—'}
@@ -693,7 +773,7 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                       </Box>
                       <Box sx={{ width: 80, mr: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {child.data.length > 0 && (
-                          <Sparkline data={child.data} color={category.color} width={70} height={14} periods={availablePeriods} />
+                          <Sparkline data={child.data} color={category.color} width={70} height={14} periods={sortedPeriods} />
                         )}
                       </Box>
                       <Typography sx={{ fontSize: '0.65rem', width: 70, color: child1YCAGR > 0 ? '#2e7d32' : child1YCAGR < 0 ? '#d32f2f' : 'text.secondary', textAlign: 'right', mr: 1 }}>
@@ -733,8 +813,8 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
 
         <Grid container spacing={2}>
           {/* Efficiency Ratio */}
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0' }}>
+          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Efficiency Ratio
               </Typography>
@@ -746,16 +826,20 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   {efficiencyData[efficiencyData.length - 1] < 60 ? '(Excellent)' : efficiencyData[efficiencyData.length - 1] < 70 ? '(Good)' : '(Needs Improvement)'}
                 </Typography>
               </Box>
-              <Sparkline data={efficiencyData} color={efficiencyData[efficiencyData.length - 1] < 60 ? '#2e7d32' : '#ed6c02'} width={200} height={40} periods={availablePeriods} />
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+                <Box sx={{ width: '100%', maxWidth: '100%' }}>
+                  <Sparkline data={efficiencyData} color={efficiencyData[efficiencyData.length - 1] < 60 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
                 Lower is better • Industry avg: 50-60%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Return on Equity (ROE) */}
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0' }}>
+          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Return on Equity (ROE)
               </Typography>
@@ -767,16 +851,20 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   {roeData[roeData.length - 1] > 12 ? '(Strong)' : roeData[roeData.length - 1] > 8 ? '(Fair)' : '(Weak)'}
                 </Typography>
               </Box>
-              <Sparkline data={roeData} color={roeData[roeData.length - 1] > 12 ? '#2e7d32' : '#ed6c02'} width={200} height={40} periods={availablePeriods} />
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+                <Box sx={{ width: '100%', maxWidth: '100%' }}>
+                  <Sparkline data={roeData} color={roeData[roeData.length - 1] > 12 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
                 Higher is better • Industry avg: 8-12%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Net Interest Margin (NIM) */}
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0' }}>
+          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Net Interest Margin (NIM)
               </Typography>
@@ -788,16 +876,20 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   {nimData[nimData.length - 1] > 3.5 ? '(Healthy)' : nimData[nimData.length - 1] > 2.5 ? '(Fair)' : '(Compressed)'}
                 </Typography>
               </Box>
-              <Sparkline data={nimData} color={nimData[nimData.length - 1] > 3.5 ? '#2e7d32' : '#ed6c02'} width={200} height={40} periods={availablePeriods} />
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+                <Box sx={{ width: '100%', maxWidth: '100%' }}>
+                  <Sparkline data={nimData} color={nimData[nimData.length - 1] > 3.5 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
                 Higher is better • Industry avg: 3-4%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Operating Leverage */}
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0' }}>
+          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Operating Leverage (YoY)
               </Typography>
@@ -809,9 +901,13 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   {operatingLeverageData[operatingLeverageData.length - 1] > 1 ? '(Positive)' : operatingLeverageData[operatingLeverageData.length - 1] > 0 ? '(Neutral)' : '(Negative)'}
                 </Typography>
               </Box>
-              <Sparkline data={operatingLeverageData} color={operatingLeverageData[operatingLeverageData.length - 1] > 1 ? '#2e7d32' : '#ed6c02'} width={200} height={40} periods={availablePeriods} />
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
-                Higher is better • Revenue growth % ÷ Expense growth %
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+                <Box sx={{ width: '100%', maxWidth: '100%' }}>
+                  <Sparkline data={operatingLeverageData} color={operatingLeverageData[operatingLeverageData.length - 1] > 1 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
+                Higher is better
               </Typography>
             </Paper>
           </Grid>
@@ -856,8 +952,8 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                 iconType="square"
                 iconSize={10}
               />
-              <Bar dataKey="netInterestIncome" fill="#1976d2" name="Net Interest" />
-              <Bar dataKey="noninterestIncome" fill="#82ca9d" name="Non-Interest" />
+              <Bar dataKey="netInterestIncome" stackId="income" fill="#1976d2" name="Net Interest" />
+              <Bar dataKey="noninterestIncome" stackId="income" fill="#82ca9d" name="Non-Interest" />
             </BarChart>
           </ResponsiveContainer>
         </Box>
@@ -908,7 +1004,7 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
             Total FTE count
           </Typography>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={incomeExpenseChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+            <BarChart data={incomeExpenseChartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e8e8e8" vertical={false} />
               <XAxis
                 dataKey="period"
@@ -927,19 +1023,15 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
               />
               <Legend
                 wrapperStyle={{ fontSize: '0.65rem', paddingTop: 8 }}
-                iconType="line"
+                iconType="square"
                 iconSize={10}
               />
-              <Line
-                type="monotone"
+              <Bar
                 dataKey="fte"
-                stroke="#8884d8"
-                strokeWidth={2.5}
+                fill="#8884d8"
                 name="FTE"
-                dot={{ r: 3, fill: '#8884d8', strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
               />
-            </LineChart>
+            </BarChart>
           </ResponsiveContainer>
         </Box>
 
