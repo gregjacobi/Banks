@@ -40,8 +40,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log(`Server accessible at http://0.0.0.0:${PORT}`);
 });
 
 module.exports = app;
