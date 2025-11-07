@@ -24,34 +24,45 @@ router.get('/', async (req, res) => {
 
     // For totalAssets sorting, use optimized aggregation pipeline
     if (sortBy === 'totalAssets' && !search) {
-      // Use aggregation to get latest statement per bank and sort by assets
+      // Step 1: Find the most recent quarter across ALL banks
+      const mostRecentPeriod = await FinancialStatement.findOne()
+        .sort({ reportingPeriod: -1 })
+        .select('reportingPeriod')
+        .lean();
+
+      if (!mostRecentPeriod || !mostRecentPeriod.reportingPeriod) {
+        return res.json({
+          banks: [],
+          total: 0,
+          limit: parseInt(limit),
+          offset: parseInt(offset)
+        });
+      }
+
+      const latestQuarter = mostRecentPeriod.reportingPeriod;
+
+      // Step 2: Only include banks that have data for the most recent quarter
+      // Then sort by assets and limit to top N
       const banksWithAssets = await FinancialStatement.aggregate([
-        // Sort by period descending to get latest first
-        { $sort: { reportingPeriod: -1 } },
-        // Group by bank to get latest statement
-        {
-          $group: {
-            _id: '$idrssd',
-            latestStatement: { $first: '$$ROOT' }
-          }
-        },
+        // Match only statements from the most recent quarter
+        { $match: { reportingPeriod: latestQuarter } },
         // Sort by total assets descending
-        { $sort: { 'latestStatement.balanceSheet.assets.totalAssets': -1 } },
+        { $sort: { 'balanceSheet.assets.totalAssets': -1 } },
         // Apply pagination at database level
         { $skip: parseInt(offset) },
         { $limit: parseInt(limit) },
         // Project only needed fields
         {
           $project: {
-            idrssd: '$_id',
-            totalAssets: '$latestStatement.balanceSheet.assets.totalAssets',
-            reportingPeriod: '$latestStatement.reportingPeriod',
-            netIncome: '$latestStatement.incomeStatement.netIncome',
-            efficiencyRatio: '$latestStatement.ratios.efficiencyRatio',
-            roa: '$latestStatement.ratios.roa',
-            roe: '$latestStatement.ratios.roe',
-            netInterestMargin: '$latestStatement.ratios.netInterestMargin',
-            fullTimeEquivalentEmployees: '$latestStatement.incomeStatement.fullTimeEquivalentEmployees'
+            idrssd: 1,
+            totalAssets: '$balanceSheet.assets.totalAssets',
+            reportingPeriod: '$reportingPeriod',
+            netIncome: '$incomeStatement.netIncome',
+            efficiencyRatio: '$ratios.efficiencyRatio',
+            roa: '$ratios.roa',
+            roe: '$ratios.roe',
+            netInterestMargin: '$ratios.netInterestMargin',
+            fullTimeEquivalentEmployees: '$incomeStatement.fullTimeEquivalentEmployees'
           }
         }
       ]);
@@ -84,8 +95,10 @@ router.get('/', async (req, res) => {
         };
       });
 
-      // Get total count (can be cached or estimated)
-      const totalCount = await FinancialStatement.distinct('idrssd');
+      // Get total count of banks with data for the most recent quarter
+      const totalCount = await FinancialStatement.distinct('idrssd', {
+        reportingPeriod: latestQuarter
+      });
 
       return res.json({
         banks,

@@ -9,7 +9,10 @@
     "server": "nodemon server/index.js",
     "client": "cd client && npm start",
     "build": "cd client && npm run build",
-    "install-all": "npm install && cd client && npm install"
+    "install-all": "npm install && cd client && npm install",
+    "calc-leverage": "node server/scripts/calculateOperatingLeverage.js",
+    "calc-peers": "node server/scripts/calculatePeerAnalysis.js",
+    "calc-all": "npm run calc-leverage && npm run calc-peers"
   },
   "keywords": [
     "banking",
@@ -22,10 +25,16 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.67.0",
     "@elevenlabs/elevenlabs-js": "^2.19.0",
+    "@mozilla/readability": "^0.6.0",
+    "axios": "^1.12.2",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "mongoose": "^8.0.3"
+    "jsdom": "^27.0.1",
+    "mongoose": "^8.0.3",
+    "multer": "^2.0.2",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

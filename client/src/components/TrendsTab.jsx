@@ -618,42 +618,18 @@ function TrendsTab({ idrssd, availablePeriods }) {
     ]
   };
 
-  // Calculate operating leverage (YoY) - filter out null values
+  // Operating Leverage: Use pre-calculated value from database (already calculated with correct quarterly conversion)
+  // The database value is calculated in calculateDerivedMetrics.js using:
+  // - Quarterly values (YTD converted to quarterly)
+  // - PPNR-based formula: (YoY % Change in PPNR) / (YoY % Change in Total Revenue)
   const operatingLeverageRawData = trendsData.map((stmt, index) => {
-    const date = new Date(stmt.reportingPeriod);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const quarter = Math.ceil(month / 3);
-
-    // Find same quarter from previous year
-    const priorYearStmt = trendsData.find(s => {
-      const d = new Date(s.reportingPeriod);
-      const y = d.getFullYear();
-      const m = d.getMonth() + 1;
-      const q = Math.ceil(m / 3);
-      return y === year - 1 && q === quarter;
-    });
-
-    if (!priorYearStmt) return { label: labels[index], value: null };
-
-    // Calculate revenue (Net Interest Income + Noninterest Income)
-    const currentRevenue = stmt.incomeStatement.netInterestIncome + stmt.incomeStatement.noninterestIncome.total;
-    const priorRevenue = priorYearStmt.incomeStatement.netInterestIncome + priorYearStmt.incomeStatement.noninterestIncome.total;
-
-    // Calculate expense (Noninterest Expense)
-    const currentExpense = stmt.incomeStatement.noninterestExpense.total;
-    const priorExpense = priorYearStmt.incomeStatement.noninterestExpense.total;
-
-    if (priorRevenue === 0 || priorExpense === 0) return { label: labels[index], value: null };
-
-    const revenueGrowth = ((currentRevenue - priorRevenue) / priorRevenue) * 100;
-    const expenseGrowth = ((currentExpense - priorExpense) / priorExpense) * 100;
-
-    // Operating Leverage = Revenue Growth - Expense Growth
-    // Positive = good (revenue growing faster than expenses)
-    const operatingLeverage = revenueGrowth - expenseGrowth;
-
-    return { label: labels[index], value: parseFloat(operatingLeverage.toFixed(2)) };
+    // Use the pre-calculated operating leverage from the database
+    // This ensures consistency with the backend calculation which properly converts YTD to quarterly
+    const value = stmt.ratios?.operatingLeverage;
+    return {
+      label: labels[index],
+      value: value !== null && value !== undefined ? parseFloat(value.toFixed(2)) : null
+    };
   });
 
   // Filter out null values and create separate arrays for labels and data
@@ -1012,7 +988,7 @@ function TrendsTab({ idrssd, availablePeriods }) {
           Operating Leverage (YoY)
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5, fontSize: '0.75rem' }}>
-          Revenue Growth % - Expense Growth % • Positive = revenue growing faster than expenses
+          Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue) • Values > 1 indicate revenue changes amplify operating income growth
         </Typography>
         <Box sx={{ height: 180 }}>
           <Line data={operatingLeverageChartData} options={{

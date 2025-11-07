@@ -34,20 +34,24 @@ Use industry terminology appropriately but explain complex concepts clearly.`,
 
 **Your Task:**
 1. Review all provided financial trend data (assets, lending portfolio, income, ratios)
-2. **PRIORITY RESEARCH - Track your findings for the Research Checklist:**
+2. **REVIEW ATTACHED PDF DOCUMENTS (if provided):** Carefully read through any attached PDF documents. These contain valuable context such as investor presentations, earnings reports, annual reports, or other bank materials that have been curated for this analysis. Extract key information, strategic priorities, management commentary, and financial details from these PDFs.
+3. **PRIORITY RESEARCH - Track your findings for the Research Checklist:**
    - Search for recent investor presentations (last 12 months)
    - Search for earnings call transcripts
    - Search for business interviews with C-suite executives
    - Search for major news stories (last 3 months)
    - Search for evidence of AI projects, partnerships, or initiatives
-3. Search for additional context: recent news articles about this bank (last 6 months)
-4. Find and analyze their latest investor presentation or earnings materials
-5. **Search job postings** to understand hiring strategy:
+4. **COMBINE SOURCES:** Integrate insights from:
+   - Call report financial data (quantitative trends)
+   - Attached PDF documents (strategic context, management perspective)
+   - Web search results (recent news, market context, competitive intelligence)
+5. Find and analyze their latest investor presentation or earnings materials (if not already in PDFs)
+6. **Search job postings** to understand hiring strategy:
    - Search: "{bankName} jobs LinkedIn" and "{bankName} careers"
    - Focus on: Volume of openings, departments hiring, tech roles and stack
    - Look for patterns in job titles, required skills, and technologies mentioned
-5. Identify the bank's strategic priorities and business model focus
-6. Generate a comprehensive research report with embedded visualizations
+7. Identify the bank's strategic priorities and business model focus
+8. Generate a comprehensive research report with embedded visualizations
 
 **Available Custom Tags:**
 You can embed interactive charts and components in your report using these custom tags:
@@ -87,10 +91,12 @@ You can embed interactive charts and components in your report using these custo
 You MUST cite all claims with inline references:
 - For financial data from provided statements: Use [Call Report: Q# YYYY] format
   Example: "Total assets grew 15% year-over-year [Call Report: Q2 2025]"
+- For information from attached PDFs: Use [PDF: filename] format
+  Example: "Management expects 10% loan growth in 2025 [PDF: Q2-2025-Earnings-Presentation]"
 - For web search results: Use [Source #] format and list all sources at end
   Example: "The CEO announced a new digital strategy [Source 1]"
 - Always cite specific data points, news, quotes, and strategic information
-- Include a "Sources" section at the end listing all web sources with full URLs
+- Include a "Sources" section at the end listing all web sources with full URLs (PDF sources are already provided)
 
 **Formatting Guidelines:**
 - Use bullet format "• **Label**: Description" ONLY within bulleted lists
@@ -135,7 +141,11 @@ Compare net income performance across years by quarter. Are there consistent sea
 **Key chart to use:** <chart:net-income-yoy /> - Year-over-year quarterly net income comparison
 
 ### Expense Management and Efficiency
-Analyze the bank's cost structure. Break down operating expenses by major category (personnel costs, premises, other). How is headcount trending relative to revenue growth? Is the bank investing in expansion or optimizing for efficiency? Discuss the efficiency ratio and whether the bank is achieving positive operating leverage.
+Analyze the bank's cost structure. Break down operating expenses by major category (personnel costs, premises, other). How is headcount trending relative to revenue growth? Is the bank investing in expansion or optimizing for efficiency? 
+
+**Efficiency Ratio Analysis:** Discuss the efficiency ratio (LOWER is better). A decreasing efficiency ratio indicates improving operational efficiency, while an increasing ratio indicates worsening efficiency.
+
+**Operating Leverage Analysis:** Operating leverage measures how changes in revenue amplify changes in operating income (operational scalability). **Formula:** Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where Total Revenue = Total Interest Income + Total Non-Interest Income, and PPNR (Pre-Provision Net Revenue) = Total Revenue - Total Operating Expenses. **HIGHER is better** - Values > 1.0 indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT). Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations. Values < 1.0 indicate operating income changes less than revenue (negative leverage), which is concerning.
 
 **Key charts to use:**
 - <chart:expense-breakdown /> - Operating expenses by category
@@ -149,8 +159,17 @@ Include relevant charts throughout.
 # Key Financial Ratios
 **CRITICAL:** Focus on these FOUR KEY METRICS and compare against peers:
 
+**CRITICAL METRIC INTERPRETATION GUIDANCE:**
+Before analyzing each metric, understand that direction matters:
+- **Efficiency Ratio**: LOWER is better. A 45% efficiency ratio is excellent, while 75% is poor. This measures how much of revenue is consumed by operating expenses.
+- **Operating Leverage**: HIGHER is better. Operating leverage measures operational scalability by measuring how changes in revenue amplify changes in operating income. **Formula:** (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where PPNR = Pre-Provision Net Revenue (Total Revenue - Operating Expenses). Higher values (> 1.0) indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT). Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations.
+- **ROE (Return on Equity)**: HIGHER is better. 15% is strong, while 5% is weak.
+- **NIM (Net Interest Margin)**: HIGHER is better. 4% is healthy, while 2% is compressed.
+
+**DO NOT confuse these directions when analyzing performance.**
+
 ### Efficiency Ratio
-Analyze the efficiency ratio in detail. This is a critical measure of operational efficiency (lower is better). **REQUIRED COMPARISON:** How does the bank's efficiency ratio compare to:
+Analyze the efficiency ratio in detail. **CRITICAL: LOWER IS BETTER** - This is a critical measure of operational efficiency where lower values indicate better performance. A 45% efficiency ratio is excellent, while 75% is concerning. **REQUIRED COMPARISON:** How does the bank's efficiency ratio compare to:
 - The peer group average (provided in peer data)
 - Industry benchmark (50-60%)
 - Best performers in the peer group
@@ -170,7 +189,7 @@ Assess NIM trends (3-4% benchmark). **REQUIRED COMPARISON:** How does NIM compar
 **Use both charts:** <chart:nim /> and <chart:peer-nim />
 
 ### Operating Leverage
-Analyze operating leverage (revenue growth % / expense growth %). **REQUIRED COMPARISON:** Compare to peer banks. Positive leverage (>1.0) shows scalability. If the bank has negative leverage while peers have positive, explain the strategic implications.
+Analyze operating leverage: **CRITICAL: HIGHER IS BETTER** - This metric measures operational scalability by measuring how changes in revenue amplify changes in operating income. **Formula:** Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where Total Revenue = Total Interest Income + Total Non-Interest Income, and PPNR (Pre-Provision Net Revenue) = Total Revenue - Total Operating Expenses. Higher values (> 1.0) indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT). For example, if PPNR grew 20% YoY and Total Revenue grew 10% YoY, operating leverage = 2.0x, indicating excellent operational leverage. Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations. Values < 1.0 indicate operating income changes less than revenue (negative leverage), which is concerning and indicates the bank is not achieving operating leverage. **REQUIRED COMPARISON:** Compare to peer banks. If peers have positive operating leverage while this bank has low/negative, explain the strategic implications and why the bank is underperforming.
 
 **Use both charts:** <chart:operating-leverage /> and <chart:peer-operating-leverage />
 
@@ -377,7 +396,7 @@ Provide context from news and investor materials where relevant.`,
 - **Headcount Trends:** How is FTE count changing? Is the bank growing, flat, or reducing staff? How does this relate to revenue trends?
 - What do quarterly comparisons reveal about momentum?
 - **Year-over-Year Comparison:** How does current year performance compare to prior years at the same point? Is Q2 2025 stronger/weaker than Q2 2024?
-- Is the bank achieving positive operating leverage (revenue growing faster than expenses)?`,
+- Is the bank achieving positive operating leverage (PPNR growing faster than Total Revenue)? Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where values > 1.0 indicate positive leverage.`,
 
   /**
    * Financial ratios analysis prompt
@@ -388,25 +407,37 @@ Provide context from news and investor materials where relevant.`,
 {ratioData}
 
 **CRITICAL RATIOS - Focus your analysis on these four metrics:**
-1. **Efficiency Ratio** (50-60% benchmark, lower is better)
+1. **Efficiency Ratio** (50-60% benchmark, **LOWER IS BETTER**)
    - Measures operational efficiency: Noninterest Expense / (Net Interest Income + Noninterest Income)
+   - **Direction: LOWER is better** - A 45% efficiency ratio is excellent, while 75% is poor
    - Best-in-class banks: <50%, Average: 55-65%, Concerning: >70%
    - Analyze trend and drivers (technology investments, branch optimization, scale benefits)
+   - **When discussing performance, always state whether the ratio is improving (decreasing) or worsening (increasing)**
 
-2. **Return on Equity (ROE)** (8-12% benchmark, higher is better)
+2. **Return on Equity (ROE)** (8-12% benchmark, **HIGHER IS BETTER**)
    - Measures profitability: Net Income / Total Equity
+   - **Direction: HIGHER is better** - 15% is strong, while 5% is weak
    - Strong: >12%, Fair: 8-12%, Weak: <8%
    - Evaluate against peers and explain what's driving performance
 
-3. **Net Interest Margin (NIM)** (3-4% benchmark, higher is better)
+3. **Net Interest Margin (NIM)** (3-4% benchmark, **HIGHER IS BETTER**)
    - Measures core lending profitability: Net Interest Income / Earning Assets
+   - **Direction: HIGHER is better** - 4% is healthy, while 2% is compressed
    - Healthy: >3.5%, Fair: 2.5-3.5%, Compressed: <2.5%
    - Discuss rate environment impact and deposit pricing power
 
-4. **Operating Leverage** (YoY revenue growth % / expense growth %)
-   - Positive leverage (>1.0): Revenue growing faster than expenses
-   - Negative leverage (<1.0): Expenses growing faster than revenue
-   - Key indicator of scalability and operational discipline
+4. **Operating Leverage** (YoY comparison)
+   - **Direction: HIGHER IS BETTER**
+   - **Formula:** Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue)
+   - **Where:**
+     - **Total Revenue** = Total Interest Income + Total Non-Interest Income
+     - **PPNR (Pre-Provision Net Revenue)** = Total Revenue - Total Operating Expenses
+   - Higher values (> 1.0) indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT)
+   - Values < 1.0 indicate operating income changes less than revenue (negative leverage) - this is concerning
+   - **Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations**
+   - Key indicator of operational discipline and efficiency
+   - Example: If PPNR grew 20% YoY and Total Revenue grew 10% YoY, operating leverage = 2.0x (EXCELLENT)
+   - If PPNR grew 5% YoY and Total Revenue grew 10% YoY, operating leverage = 0.5x (CONCERNING)
 
 **Additional Ratios:**
 - ROA: 0.8-1.2%

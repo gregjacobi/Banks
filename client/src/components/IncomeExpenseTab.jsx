@@ -33,11 +33,13 @@ function IncomeExpenseTab({ idrssd, availablePeriods }) {
         );
         const responses = await Promise.all(requests);
 
-        const data = responses
+        // Sort by period (oldest first for proper time-based chart ordering)
+        const sortedStatements = responses
           .map(response => response.data.financialStatement)
           .filter(stmt => stmt != null)
-          .reverse() // Chronological order
-          .map(stmt => {
+          .sort((a, b) => new Date(a.reportingPeriod) - new Date(b.reportingPeriod));
+
+        const data = sortedStatements.map(stmt => {
             const date = new Date(stmt.reportingPeriod);
             const year = date.getFullYear();
             const month = date.getMonth() + 1;

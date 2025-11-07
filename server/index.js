@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -15,14 +15,30 @@ app.use(express.json());
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bankexplorer';
 
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
+  .then(async () => {
+    console.log('MongoDB connected successfully');
+
+    // Optional: Clear UBPR cache on startup
+    // Set CLEAR_UBPR_CACHE_ON_STARTUP=true in .env to enable
+    if (process.env.CLEAR_UBPR_CACHE_ON_STARTUP === 'true') {
+      try {
+        const UBPRData = require('./models/UBPRData');
+        const result = await UBPRData.deleteMany({});
+        console.log(`✓ Cleared ${result.deletedCount} UBPR cache entries on startup`);
+      } catch (error) {
+        console.error('Error clearing UBPR cache on startup:', error.message);
+      }
+    }
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
 const banksRouter = require('./routes/banks');
 const researchRouter = require('./routes/research');
+const ubprRouter = require('./routes/ubpr');
 app.use('/api/banks', banksRouter);
 app.use('/api/research', researchRouter);
+app.use('/api/ubpr', ubprRouter);
 
 app.get('/api/hello', (req, res) => {
   res.json({

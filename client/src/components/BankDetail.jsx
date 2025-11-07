@@ -22,8 +22,10 @@ import IncomeStatement from './IncomeStatement';
 import TrendsTab from './TrendsTabCompact';
 import RatiosTab from './RatiosTab';
 import PeerComparisonTab from './PeerComparisonTab';
-import AIResearchTab from './AIResearchTab';
+import AIBuilderTab from './AIBuilderTab';
+import AIContentTab from './AIContentTab';
 import CompactPodcastPlayer from './CompactPodcastPlayer';
+import { AIProvider } from '../contexts/AIContext';
 
 /**
  * Bank Detail View
@@ -238,49 +240,59 @@ function BankDetail() {
       </Card>
 
       {/* Financial Statements Tabs */}
-      <Card>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="At a Glance" />
-            <Tab label="Balance Sheet" />
-            <Tab label="Income Statement" />
-            <Tab label="Ratios" />
-            <Tab label="Peer Comparison" />
-            <Tab label="AI Research" />
-          </Tabs>
-        </Box>
+      <AIProvider idrssd={idrssd} bankName={institution?.name}>
+        <Card>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs value={activeTab} onChange={handleTabChange}>
+              <Tab label="At a Glance" />
+              <Tab label="Balance Sheet" />
+              <Tab label="Income Statement" />
+              <Tab label="Ratios" />
+              <Tab label="Peer Comparison" />
+              <Tab label="AI Builder" />
+              <Tab label="AI Content" />
+            </Tabs>
+          </Box>
 
-        <CardContent sx={{ p: 3 }}>
-          {activeTab === 0 && (
-            <TrendsTab idrssd={idrssd} availablePeriods={availablePeriods} />
-          )}
-          {activeTab === 1 && (
-            <BalanceSheet
-              balanceSheet={financialStatement?.balanceSheet}
-              historicalData={historicalData}
-            />
-          )}
-          {activeTab === 2 && (
-            <IncomeStatement incomeStatement={financialStatement?.incomeStatement} />
-          )}
-          {activeTab === 3 && (
-            <RatiosTab
-              financialStatement={financialStatement}
-              previousPeriodStatement={previousPeriodData}
-            />
-          )}
-          {activeTab === 4 && (
-            <PeerComparisonTab idrssd={idrssd} availablePeriods={availablePeriods} />
-          )}
-          {activeTab === 5 && (
-            <AIResearchTab
-              idrssd={idrssd}
-              bankName={institution.name}
-              onPodcastReady={setPodcastUrl}
-            />
-          )}
-        </CardContent>
-      </Card>
+          <CardContent sx={{ p: 3 }}>
+            {activeTab === 0 && (
+              <TrendsTab idrssd={idrssd} availablePeriods={availablePeriods} />
+            )}
+            {activeTab === 1 && (
+              <BalanceSheet
+                balanceSheet={financialStatement?.balanceSheet}
+                historicalData={historicalData}
+              />
+            )}
+            {activeTab === 2 && (
+              <IncomeStatement incomeStatement={financialStatement?.incomeStatement} />
+            )}
+            {activeTab === 3 && (
+              <RatiosTab
+                financialStatement={financialStatement}
+                previousPeriodStatement={previousPeriodData}
+                historicalData={historicalData}
+              />
+            )}
+            {activeTab === 4 && (
+              <PeerComparisonTab idrssd={idrssd} availablePeriods={availablePeriods} />
+            )}
+            {activeTab === 5 && (
+              <AIBuilderTab
+                idrssd={idrssd}
+                bankName={institution.name}
+              />
+            )}
+            {activeTab === 6 && (
+              <AIContentTab
+                idrssd={idrssd}
+                bankName={institution.name}
+                onNavigateToBuilder={() => setActiveTab(5)}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </AIProvider>
 
       {/* Validation Warnings */}
       {financialStatement?.validation && !financialStatement.validation.balanceSheetValid && (

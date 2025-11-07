@@ -57,8 +57,19 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
     // First convert plain URLs to markdown links
     text = convertUrlsToLinks(text);
 
+    // Convert {{CHART:type|metric|title}} format to <chart:metric /> format
+    // This handles agent-generated reports that use the double-brace format
+    text = text.replace(/\{\{CHART:(\w+)\|(\w+)\|([^}]+)\}\}/g, (match, type, metric, title) => {
+      // Convert camelCase to kebab-case
+      const kebabMetric = metric.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+      return `<chart:${kebabMetric} />`;
+    });
+
     const chartTagRegex = /<chart:([\w-]+)\s*\/>/g;
-    const leaderTagRegex = /<leader\s+name="([^"]+)"\s+title="([^"]+)"(?:\s+image="([^"]+)")?\s*>([\s\S]*?)<\/leader>/g;
+    // Support both single and double quotes, and handle self-closing tags
+    // Updated regex to handle empty image attributes (image="") and multiline content
+    // Using non-greedy match for bio content to handle multiple leader tags
+    const leaderTagRegex = /<leader\s+name=["']([^"']+)["']\s+title=["']([^"']+)["'](?:\s+image=["']([^"']*)["'])?\s*>([\s\S]*?)<\/leader>/g;
     const checklistTagRegex = /<research-checklist>\s*(\{[\s\S]*?\})\s*<\/research-checklist>/;
 
     const parts = [];
@@ -91,15 +102,21 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
       });
     }
 
+    // Reset regex lastIndex to ensure we search from the beginning
+    leaderTagRegex.lastIndex = 0;
     while ((match = leaderTagRegex.exec(text)) !== null) {
+      // Handle empty image attribute - if image is empty string, set to null
+      const imageValue = match[3];
+      const finalImage = (imageValue === undefined || imageValue === '' || imageValue === null) ? null : imageValue;
+      
       allMatches.push({
         index: match.index,
         length: match[0].length,
         type: 'leader',
         name: match[1],
         title: match[2],
-        image: match[3] || null,
-        bio: match[4]
+        image: finalImage,
+        bio: (match[4] || '').trim() // Bio is optional (for self-closing tags), trim whitespace
       });
     }
 
@@ -395,60 +412,131 @@ function AssetCompositionChart({ trendsData }) {
     return <Typography>No asset data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => p.period);
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
+  const labels = sortedPeriods.map(p => p.period);
 
+  // Stacked area chart data with granular loan breakdown
+  // Consumer loans (blue shades)
+  // Business loans (green shades)
   const chartData = {
     labels,
     datasets: [
+      // Consumer loans - blue shades
       {
-        label: 'Consumer Lending',
-        data: trendsData.periods.map(p => (p.assets.consumerLending / 1000).toFixed(0)),
+        label: 'Residential Mortgages',
+        data: sortedPeriods.map(p => ((p.assets.residentialMortgages || 0) / 1000)),
+        backgroundColor: 'rgba(25, 118, 210, 0.7)',
         borderColor: '#1976d2',
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.2,
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
         pointRadius: 0,
-        pointHoverRadius: 4
+        stack: 'consumer'
       },
       {
-        label: 'Business Lending',
-        data: trendsData.periods.map(p => (p.assets.businessLending / 1000).toFixed(0)),
-        borderColor: '#388e3c',
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.2,
+        label: 'Credit Cards',
+        data: sortedPeriods.map(p => ((p.assets.creditCards || 0) / 1000)),
+        backgroundColor: 'rgba(66, 165, 245, 0.7)',
+        borderColor: '#42a5f5',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
         pointRadius: 0,
-        pointHoverRadius: 4
+        stack: 'consumer'
       },
+      {
+        label: 'Auto Loans',
+        data: sortedPeriods.map(p => ((p.assets.autoLoans || 0) / 1000)),
+        backgroundColor: 'rgba(144, 202, 249, 0.7)',
+        borderColor: '#90caf9',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        stack: 'consumer'
+      },
+      {
+        label: 'Other Consumer',
+        data: sortedPeriods.map(p => ((p.assets.otherConsumer || 0) / 1000)),
+        backgroundColor: 'rgba(187, 222, 251, 0.7)',
+        borderColor: '#bbdefb',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        stack: 'consumer'
+      },
+      // Business loans - green shades
+      {
+        label: 'Commercial Real Estate',
+        data: sortedPeriods.map(p => ((p.assets.commercialRealEstate || 0) / 1000)),
+        backgroundColor: 'rgba(56, 142, 60, 0.7)',
+        borderColor: '#388e3c',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        stack: 'business'
+      },
+      {
+        label: 'C&I Loans',
+        data: sortedPeriods.map(p => ((p.assets.cAndI || 0) / 1000)),
+        backgroundColor: 'rgba(76, 175, 80, 0.7)',
+        borderColor: '#4caf50',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        stack: 'business'
+      },
+      {
+        label: 'Other Business',
+        data: sortedPeriods.map(p => ((p.assets.otherBusiness || 0) / 1000)),
+        backgroundColor: 'rgba(129, 199, 132, 0.7)',
+        borderColor: '#81c784',
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        stack: 'business'
+      },
+      // Non-loan assets
       {
         label: 'Securities',
-        data: trendsData.periods.map(p => (p.assets.securities / 1000).toFixed(0)),
+        data: sortedPeriods.map(p => (p.assets.securities / 1000)),
+        backgroundColor: 'rgba(245, 124, 0, 0.7)',
         borderColor: '#f57c00',
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.2,
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
         pointRadius: 0,
-        pointHoverRadius: 4
+        stack: 'assets'
       },
       {
         label: 'Cash',
-        data: trendsData.periods.map(p => (p.assets.cash / 1000).toFixed(0)),
+        data: sortedPeriods.map(p => (p.assets.cash / 1000)),
+        backgroundColor: 'rgba(123, 31, 162, 0.7)',
         borderColor: '#7b1fa2',
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.2,
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
         pointRadius: 0,
-        pointHoverRadius: 4
+        stack: 'assets'
       },
       {
         label: 'Other Assets',
-        data: trendsData.periods.map(p => (p.assets.other / 1000).toFixed(0)),
+        data: sortedPeriods.map(p => (p.assets.other / 1000)),
+        backgroundColor: 'rgba(97, 97, 97, 0.7)',
         borderColor: '#616161',
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.2,
+        borderWidth: 1,
+        fill: true,
+        tension: 0,
         pointRadius: 0,
-        pointHoverRadius: 4
+        stack: 'assets'
       }
     ]
   };
@@ -476,11 +564,14 @@ function AssetCompositionChart({ trendsData }) {
     },
     scales: {
       x: {
+        stacked: true,
         grid: { display: false },
         ticks: { font: { size: 10 }, maxRotation: 0 },
         border: { display: false }
       },
       y: {
+        stacked: true,
+        beginAtZero: true,
         grid: { color: '#e8e8e8', lineWidth: 0.5, drawBorder: false },
         ticks: { font: { size: 10 }, padding: 8 },
         border: { display: false }
@@ -577,9 +668,14 @@ function NetIncomeChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
   // Group by year
   const incomeByYear = {};
-  trendsData.periods.forEach(p => {
+  sortedPeriods.forEach(p => {
     const [year, quarter] = p.period.split(' ');
     const q = parseInt(quarter.replace('Q', ''));
     if (!incomeByYear[year]) incomeByYear[year] = {};
@@ -633,9 +729,14 @@ function NetInterestIncomeChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
   // Group by year
   const incomeByYear = {};
-  trendsData.periods.forEach(p => {
+  sortedPeriods.forEach(p => {
     const [year, quarter] = p.period.split(' ');
     const q = parseInt(quarter.replace('Q', ''));
     if (!incomeByYear[year]) incomeByYear[year] = {};
@@ -689,8 +790,13 @@ function RatioChart({ trendsData, ratioKey, title }) {
     return <Typography>No ratio data available</Typography>;
   }
 
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
   // Filter out null values for operating leverage
-  const filteredData = trendsData.periods
+  const filteredData = sortedPeriods
     .map((p, idx) => ({
       label: p.period,
       value: p.ratios?.[ratioKey] ?? null,
@@ -771,7 +877,7 @@ function LeadershipProfile({ name, title, image, bio }) {
       }}
     >
       {/* Headshot */}
-      {image && (
+      {image && image.trim() !== '' && (
         <Box
           sx={{
             flexShrink: 0,
@@ -874,9 +980,14 @@ function NetIncomeYoYChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
   // Group by year
   const incomeByYear = {};
-  trendsData.periods.forEach(p => {
+  sortedPeriods.forEach(p => {
     const [year, quarter] = p.period.split(' ');
     const q = parseInt(quarter.replace('Q', ''));
     if (!incomeByYear[year]) incomeByYear[year] = {};
@@ -930,19 +1041,24 @@ function IncomeBreakdownChart({ trendsData }) {
     return <Typography>No income data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => p.period);
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
+  const labels = sortedPeriods.map(p => p.period);
 
   const data = {
     labels,
     datasets: [
       {
-        label: 'Net Interest Income',
-        data: trendsData.periods.map(p => (p.income.netInterestIncome / 1000).toFixed(0)),
+        label: 'Interest Income',
+        data: sortedPeriods.map(p => (p.income.interestIncome / 1000).toFixed(0)),
         backgroundColor: '#1976d2'
       },
       {
         label: 'Non-Interest Income',
-        data: trendsData.periods.map(p => (p.income.nonInterestIncome / 1000).toFixed(0)),
+        data: sortedPeriods.map(p => (p.income.nonInterestIncome / 1000).toFixed(0)),
         backgroundColor: '#82ca9d'
       }
     ]
@@ -952,17 +1068,20 @@ function IncomeBreakdownChart({ trendsData }) {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      title: { display: true, text: 'Revenue Trends: Interest vs. Non-Interest Income ($M)', font: { size: 14, weight: 600 } },
+      title: { display: true, text: 'Revenue Trends: Total Interest Income vs. Non-Interest Income ($M)', font: { size: 14, weight: 600 } },
       legend: { position: 'bottom', labels: { font: { size: 10 }, padding: 10 } }
     },
     scales: {
-      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      x: { 
+        stacked: true,
+        grid: { display: false }, 
+        ticks: { font: { size: 10 } } 
+      },
       y: {
         stacked: true,
         grid: { color: '#e8e8e8', lineWidth: 0.5 },
         ticks: { font: { size: 10 } }
-      },
-      x: { stacked: true }
+      }
     }
   };
 
@@ -978,34 +1097,51 @@ function ExpenseBreakdownChart({ trendsData }) {
     return <Typography>No expense data available</Typography>;
   }
 
-  // Check if any period has expenses data
-  const hasExpenses = trendsData.periods.some(p => p.expenses);
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+
+  // Check if any period has expenses data with actual values
+  const hasExpenses = sortedPeriods.some(p =>
+    p.expenses && (
+      (p.expenses.salariesAndBenefits && p.expenses.salariesAndBenefits > 0) ||
+      (p.expenses.occupancy && p.expenses.occupancy > 0) ||
+      (p.expenses.other && p.expenses.other > 0)
+    )
+  );
+
   if (!hasExpenses) {
-    return <Typography>No expense data available</Typography>;
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 2 }}>
+        Detailed expense breakdown (salaries, occupancy) is not available in the Call Reports for this bank.
+        Total noninterest expense data is available in other sections of the report.
+      </Typography>
+    );
   }
 
-  const labels = trendsData.periods.map(p => p.period);
+  const labels = sortedPeriods.map(p => p.period);
 
   const data = {
     labels,
     datasets: [
       {
         label: 'Salaries & Benefits',
-        data: trendsData.periods.map(p => p.expenses?.salariesAndBenefits ? (p.expenses.salariesAndBenefits / 1000).toFixed(0) : 0),
+        data: sortedPeriods.map(p => p.expenses?.salariesAndBenefits ? (p.expenses.salariesAndBenefits / 1000).toFixed(0) : 0),
         backgroundColor: 'rgba(2, 136, 209, 0.7)',
         borderColor: '#0288d1',
         borderWidth: 1
       },
       {
         label: 'Occupancy',
-        data: trendsData.periods.map(p => p.expenses?.occupancy ? (p.expenses.occupancy / 1000).toFixed(0) : 0),
+        data: sortedPeriods.map(p => p.expenses?.occupancy ? (p.expenses.occupancy / 1000).toFixed(0) : 0),
         backgroundColor: 'rgba(56, 142, 60, 0.7)',
         borderColor: '#388e3c',
         borderWidth: 1
       },
       {
         label: 'Other Expenses',
-        data: trendsData.periods.map(p => p.expenses?.other ? (p.expenses.other / 1000).toFixed(0) : 0),
+        data: sortedPeriods.map(p => p.expenses?.other ? (p.expenses.other / 1000).toFixed(0) : 0),
         backgroundColor: 'rgba(211, 47, 47, 0.7)',
         borderColor: '#d32f2f',
         borderWidth: 1
@@ -1053,8 +1189,23 @@ function FTETrendsChart({ trendsData }) {
     return <Typography>No FTE data available</Typography>;
   }
 
-  const labels = trendsData.periods.map(p => p.period);
-  const fteData = trendsData.periods.map(p => p.fte || 0);
+  // Ensure periods are sorted by date (oldest first) for proper chronological chart ordering
+  const sortedPeriods = [...trendsData.periods].sort((a, b) => 
+    new Date(a.date) - new Date(b.date)
+  );
+  
+  const labels = sortedPeriods.map(p => p.period);
+  const fteData = sortedPeriods.map(p => p.fte || 0);
+
+  // Check if we have any actual FTE data
+  const hasData = fteData.some(value => value > 0);
+  if (!hasData) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 2 }}>
+        FTE (Full-Time Equivalent) employee data is not available in the Call Reports for this bank.
+      </Typography>
+    );
+  }
 
   const data = {
     labels,
@@ -1142,9 +1293,12 @@ function PeerComparisonChart({ idrssd, trendsData, metric, title, lowerBetter = 
   }
 
   // Prepare chart data
+  // Sort: best performers on RIGHT, worst on LEFT
+  // For lowerBetter metrics (efficiency ratio), lower is better (best on right)
+  // For higherBetter metrics (ROE, NIM, etc), higher is better (best on right)
   const sortedBanks = [...peerData.banks]
     .filter(b => b[metric] !== null && b[metric] !== undefined && !isNaN(b[metric]))
-    .sort((a, b) => lowerBetter ? a[metric] - b[metric] : b[metric] - a[metric]);
+    .sort((a, b) => lowerBetter ? b[metric] - a[metric] : a[metric] - b[metric]); // Reverse sort for best-on-right
 
   const labels = sortedBanks.map(b => {
     // Truncate long names

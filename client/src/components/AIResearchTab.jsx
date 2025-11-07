@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -15,6 +15,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import PodcastsIcon from '@mui/icons-material/Podcasts';
+import DeleteIcon from '@mui/icons-material/Delete';
 import ReportRenderer from './ReportRenderer';
 import PodcastGenerator from './PodcastGenerator';
 
@@ -35,6 +36,7 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
   const [podcastModalOpen, setPodcastModalOpen] = useState(false);
   const [podcastUrl, setPodcastUrl] = useState(null);
   const [podcastDuration, setPodcastDuration] = useState(null);
+  const [podcastFilename, setPodcastFilename] = useState(null);
   const [podcastJobStatus, setPodcastJobStatus] = useState(null);
   const [podcastProgress, setPodcastProgress] = useState(0);
   const [podcastMessage, setPodcastMessage] = useState('');
@@ -43,6 +45,10 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
   const [showThinking, setShowThinking] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
+
+  // Refs for auto-scrolling
+  const thinkingRef = useRef(null);
+  const streamingTextRef = useRef(null);
 
   // Check for existing report, podcast, and active jobs on component mount
   useEffect(() => {
@@ -80,6 +86,20 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
       if (timer) clearInterval(timer);
     };
   }, [loading]);
+
+  // Auto-scroll thinking area when content updates
+  useEffect(() => {
+    if (streamingThinking && thinkingRef.current && showThinking) {
+      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+    }
+  }, [streamingThinking, showThinking]);
+
+  // Auto-scroll streaming text area when content updates
+  useEffect(() => {
+    if (streamingText && streamingTextRef.current) {
+      streamingTextRef.current.scrollTop = streamingTextRef.current.scrollHeight;
+    }
+  }, [streamingText]);
 
   // Poll for active podcast job
   useEffect(() => {
@@ -129,6 +149,7 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
       if (response.data.podcast) {
         setPodcastUrl(response.data.podcast.url);
         setPodcastDuration(response.data.podcast.duration);
+        setPodcastFilename(response.data.podcast.filename);
         if (onPodcastReady) {
           onPodcastReady(response.data.podcast.url);
         }
@@ -136,6 +157,7 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
     } catch (err) {
       // No podcast yet, that's fine
       setPodcastUrl(null);
+      setPodcastFilename(null);
     }
   };
 
@@ -223,8 +245,38 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
   const handlePodcastGenerated = (url, duration) => {
     setPodcastUrl(url);
     setPodcastDuration(duration);
+    // Extract filename from URL if possible
+    if (url && url.includes('/podcast/')) {
+      const parts = url.split('/');
+      const filename = parts[parts.length - 1];
+      setPodcastFilename(filename);
+    }
     if (onPodcastReady) {
       onPodcastReady(url);
+    }
+  };
+
+  /**
+   * Delete the current podcast
+   */
+  const handleDeletePodcast = async () => {
+    if (!podcastFilename) return;
+
+    if (!window.confirm('Are you sure you want to delete this podcast? You can regenerate it later.')) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/research/${idrssd}/podcast/${podcastFilename}`);
+      setPodcastUrl(null);
+      setPodcastDuration(null);
+      setPodcastFilename(null);
+      if (onPodcastReady) {
+        onPodcastReady(null);
+      }
+    } catch (err) {
+      console.error('Error deleting podcast:', err);
+      setError('Failed to delete podcast');
     }
   };
 
@@ -374,11 +426,29 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
       {podcastUrl && (
         <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
           <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <PodcastsIcon sx={{ color: 'white' }} />
-              <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
-                The Bankskie Show
-              </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PodcastsIcon sx={{ color: 'white' }} />
+                <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
+                  The Bankskie Show
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                startIcon={<DeleteIcon />}
+                onClick={handleDeletePodcast}
+                sx={{
+                  color: 'white',
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  '&:hover': {
+                    borderColor: 'white',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                  }
+                }}
+                variant="outlined"
+              >
+                Delete
+              </Button>
             </Box>
             <Box sx={{
               backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -477,7 +547,10 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
 
               {/* Streaming Thinking */}
               {streamingThinking && showThinking && (
-                <Paper sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', maxHeight: 200, overflow: 'auto' }}>
+                <Paper 
+                  ref={thinkingRef}
+                  sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', maxHeight: 200, overflow: 'auto' }}
+                >
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                     <Typography variant="caption" sx={{ fontWeight: 600, color: '#666' }}>
                       Claude's Thinking Process
@@ -492,7 +565,10 @@ function AIResearchTab({ idrssd, bankName, onPodcastReady }) {
 
               {/* Streaming Report Text */}
               {streamingText && (
-                <Paper sx={{ mt: 2, p: 2, bgcolor: 'white', maxHeight: 400, overflow: 'auto' }}>
+                <Paper 
+                  ref={streamingTextRef}
+                  sx={{ mt: 2, p: 2, bgcolor: 'white', maxHeight: 400, overflow: 'auto' }}
+                >
                   <Typography variant="caption" sx={{ fontWeight: 600, color: '#666', display: 'block', mb: 1 }}>
                     Report Preview (Streaming...)
                   </Typography>

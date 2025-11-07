@@ -15,8 +15,11 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper
+  Paper,
+  Tabs,
+  Tab
 } from '@mui/material';
+import MultiBankUBPRValidation from './MultiBankUBPRValidation';
 
 /**
  * Bank Search Component
@@ -30,6 +33,11 @@ function BankSearch() {
   const [inputValue, setInputValue] = useState('');
   const [topBanks, setTopBanks] = useState([]);
   const [topBanksLoading, setTopBanksLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(0);
+
+  const handleTabChange = (event, newValue) => {
+    setActiveTab(newValue);
+  };
 
   // Fetch top 50 banks on component mount
   useEffect(() => {
@@ -100,15 +108,26 @@ function BankSearch() {
 
   return (
     <Box>
-      {/* Search Card */}
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom sx={{ fontWeight: 700 }}>
-            Bank Explorer
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Search by name or browse the top 50 banks by total assets
-          </Typography>
+      {/* Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={activeTab} onChange={handleTabChange}>
+          <Tab label="Bank List" />
+          <Tab label="UBPR Validation" />
+        </Tabs>
+      </Box>
+
+      {/* Tab Content */}
+      {activeTab === 0 && (
+        <Box>
+          {/* Search Card */}
+          <Card sx={{ mb: 4 }}>
+            <CardContent>
+              <Typography variant="h5" gutterBottom sx={{ fontWeight: 700 }}>
+                Bank Explorer
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Search by name or browse the top 50 banks by total assets
+              </Typography>
 
           <Autocomplete
             options={options}
@@ -244,6 +263,13 @@ function BankSearch() {
           )}
         </CardContent>
       </Card>
+        </Box>
+      )}
+
+      {/* UBPR Validation Tab */}
+      {activeTab === 1 && (
+        <MultiBankUBPRValidation banks={topBanks} />
+      )}
     </Box>
   );
 }

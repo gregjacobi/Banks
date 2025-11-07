@@ -17,8 +17,16 @@ async function importAllQuarters() {
 
     const parser = new CallReportParser();
 
-    // Define all quarters to import
+    // Define all quarters to import (Q1 2021 - Q2 2025)
     const quarters = [
+      { date: '2021-03-31', dir: 'FFIEC CDR Call Bulk All Schedules 03312021', suffix: '03312021' },
+      { date: '2021-06-30', dir: 'FFIEC CDR Call Bulk All Schedules 06302021', suffix: '06302021' },
+      { date: '2021-09-30', dir: 'FFIEC CDR Call Bulk All Schedules 09302021', suffix: '09302021' },
+      { date: '2021-12-31', dir: 'FFIEC CDR Call Bulk All Schedules 12312021', suffix: '12312021' },
+      { date: '2022-03-31', dir: 'FFIEC CDR Call Bulk All Schedules 03312022', suffix: '03312022' },
+      { date: '2022-06-30', dir: 'FFIEC CDR Call Bulk All Schedules 06302022', suffix: '06302022' },
+      { date: '2022-09-30', dir: 'FFIEC CDR Call Bulk All Schedules 09302022', suffix: '09302022' },
+      { date: '2022-12-31', dir: 'FFIEC CDR Call Bulk All Schedules 12312022', suffix: '12312022' },
       { date: '2023-03-31', dir: 'FFIEC CDR Call Bulk All Schedules 03312023', suffix: '03312023' },
       { date: '2023-06-30', dir: 'FFIEC CDR Call Bulk All Schedules 06302023', suffix: '06302023' },
       { date: '2023-09-30', dir: 'FFIEC CDR Call Bulk All Schedules 09302023', suffix: '09302023' },

@@ -102,9 +102,17 @@ class CallReportParser {
       },
       liabilities: {
         deposits: {
-          total: getValue('2200'),
-          nonInterestBearing: getValue('6631'),
-          interestBearing: getValue('6636')
+          // For consolidated banks, total deposits = RCFN (foreign) + RCON (domestic)
+          // Since RCFD2200 doesn't exist in Call Reports, we must add the components
+          total: useRCFD
+            ? (bankData.RCFN2200 || 0) + (bankData.RCON2200 || 0)
+            : getValue('2200'),
+          nonInterestBearing: useRCFD
+            ? (bankData.RCFN6631 || 0) + (bankData.RCON6631 || 0)
+            : getValue('6631'),
+          interestBearing: useRCFD
+            ? (bankData.RCFN6636 || 0) + (bankData.RCON6636 || 0)
+            : getValue('6636')
         },
         borrowings: {
           fedFundsPurchasedAndRepos: getValue('B993'),
@@ -311,11 +319,14 @@ class CallReportParser {
     }
 
     // Net Interest Margin (NIM) = (Annualized Net Interest Income / Earning Assets) × 100
-    // Approximate earning assets as sum of loans, securities, and interest-bearing balances
+    // Earning assets include: loans, all securities (AFS, HTM, equity), interest-bearing deposits, and fed funds sold
+    // NOTE: Uses point-in-time earning assets. For proper UBPR comparison, use average earning assets
+    // (calculated in calculateDerivedMetrics.js which has access to previous period data)
     const earningAssets =
       balanceSheet.assets.earningAssets.loansAndLeases.net +
       balanceSheet.assets.earningAssets.securities.availableForSale +
       balanceSheet.assets.earningAssets.securities.heldToMaturity +
+      balanceSheet.assets.earningAssets.securities.equity +
       balanceSheet.assets.earningAssets.interestBearingBankBalances +
       balanceSheet.assets.earningAssets.fedFundsSoldAndRepos;
 

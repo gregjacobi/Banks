@@ -55,8 +55,9 @@ function PeerComparisonTab({ idrssd, availablePeriods }) {
           return;
         }
 
-        // Reverse to get chronological order
-        setPeerData(statementsWithPeers.reverse());
+        // Sort by period (oldest first for proper time-based chart ordering)
+        statementsWithPeers.sort((a, b) => new Date(a.reportingPeriod) - new Date(b.reportingPeriod));
+        setPeerData(statementsWithPeers);
 
         // Fetch all banks for the latest period to build comparison charts
         const latestPeriod = availablePeriods[0];
@@ -120,8 +121,13 @@ function PeerComparisonTab({ idrssd, availablePeriods }) {
     };
 
     metrics.forEach(metric => {
-      data[`${metric.key}_bank`] = stmt.ratios?.[metric.key] || null;
-      data[`${metric.key}_peer`] = stmt.peerAnalysis?.peerAverages?.[metric.key] || null;
+      // Map netInterestMargin field to nim for consistency with peer-banks API
+      const bankField = metric.key === 'nim' ? 'netInterestMargin' : metric.key;
+      // Peer averages use 'nim' as the key (not 'netInterestMargin')
+      const peerField = metric.key;
+
+      data[`${metric.key}_bank`] = stmt.ratios?.[bankField] || null;
+      data[`${metric.key}_peer`] = stmt.peerAnalysis?.peerAverages?.[peerField] || null;
     });
 
     return data;
@@ -238,7 +244,10 @@ function PeerComparisonTab({ idrssd, availablePeriods }) {
           const peerAvg = latest.peerAnalysis?.peerAverages?.[metric.key];
           const ranking = latest.peerAnalysis?.rankings?.[metric.key];
 
-          // Prepare chart data - sorted by metric value (all 21 banks: target + 20 peers)
+          // Prepare chart data - sorted by metric value
+          // Best performers on RIGHT, worst on LEFT
+          // For lowerBetter metrics (efficiency ratio), lower is better (best on right)
+          // For higherBetter metrics (ROE, NIM, etc), higher is better (best on right)
           let chartData = [];
           if (peerBanksData && peerBanksData.banks) {
             chartData = peerBanksData.banks
@@ -249,7 +258,7 @@ function PeerComparisonTab({ idrssd, availablePeriods }) {
                 value: b[metric.key],
                 isTarget: b.idrssd === idrssd
               }))
-              .sort((a, b) => metric.lowerBetter ? a.value - b.value : b.value - a.value);
+              .sort((a, b) => metric.lowerBetter ? b.value - a.value : a.value - b.value); // Reverse sort for best-on-right
           }
 
           return (

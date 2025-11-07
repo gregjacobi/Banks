@@ -18,7 +18,9 @@ class ClaudeService {
     }
 
     this.client = new Anthropic({
-      apiKey: apiKey
+      apiKey: apiKey,
+      timeout: 300000, // 5 minutes (300,000ms) - increased from default 60s
+      maxRetries: 0 // Disable SDK's built-in retries, we handle our own
     });
     this.model = 'claude-sonnet-4-20250514'; // Latest Sonnet with extended thinking
 
@@ -45,10 +47,11 @@ class ClaudeService {
    * @param {Object} bankInfo - Basic bank information
    * @param {Object} trendsData - Financial trends data
    * @param {Object} peerData - Peer comparison data (rankings, averages, peer banks)
+   * @param {Array} pdfs - Array of PDF documents to attach
    * @param {Function} streamCallback - Callback for streaming content (thinking, text, etc.)
    * @returns {Promise<Object>} Analysis report
    */
-  async analyzeBankPerformance(bankInfo, trendsData, peerData = null, streamCallback = null) {
+  async analyzeBankPerformance(bankInfo, trendsData, peerData = null, pdfs = [], streamCallback = null) {
     return this._withRetry(async (attempt) => {
       try {
         // Prepare the analysis prompt with bank data
@@ -65,6 +68,48 @@ class ClaudeService {
             message
           });
         }
+
+        // Prepare message content with PDFs
+        const messageContent = [];
+
+        // Add PDF documents if any
+        if (pdfs && pdfs.length > 0) {
+          console.log(`Attaching ${pdfs.length} PDF documents to analysis`);
+          const fs = require('fs').promises;
+
+          for (const pdf of pdfs) {
+            try {
+              const pdfData = await fs.readFile(pdf.getFilePath());
+              const base64Data = pdfData.toString('base64');
+
+              messageContent.push({
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: base64Data
+                },
+                cache_control: { type: 'ephemeral' } // Cache PDFs for efficiency
+              });
+
+              console.log(`Attached PDF: ${pdf.originalFilename} (${Math.round(pdf.fileSize / 1024)}KB)`);
+            } catch (error) {
+              console.error(`Failed to attach PDF ${pdf.originalFilename}:`, error.message);
+            }
+          }
+
+          // Add instruction about PDFs
+          messageContent.push({
+            type: 'text',
+            text: `The above ${pdfs.length} PDF document(s) contain additional research materials. Please review them and incorporate relevant information into your analysis.`
+          });
+        }
+
+        // Add main analysis prompt
+        messageContent.push({
+          type: 'text',
+          text: analysisPrompt
+        });
 
         // Call Claude API with streaming, extended thinking and web search
         const stream = await this.client.messages.stream({
@@ -83,7 +128,7 @@ class ClaudeService {
         messages: [
           {
             role: 'user',
-            content: analysisPrompt
+            content: messageContent
           }
         ],
         system: prompts.systemPrompt
@@ -221,8 +266,24 @@ class ClaudeService {
         message.includes('econnreset') ||
         message.includes('etimedout') ||
         message.includes('overloaded') ||
-        message.includes('rate limit')) {
+        message.includes('rate limit') ||
+        message.includes('terminated') ||
+        message.includes('socket')) {
       return true;
+    }
+
+    // Check error.cause for nested errors (undici wrapping)
+    if (error.cause) {
+      const causeMessage = error.cause.message?.toLowerCase() || '';
+      const causeCode = error.cause.code;
+      if (causeMessage.includes('timeout') ||
+          causeMessage.includes('etimedout') ||
+          causeMessage.includes('econnreset') ||
+          causeMessage.includes('socket') ||
+          causeCode === 'ETIMEDOUT' ||
+          causeCode === 'ECONNRESET') {
+        return true;
+      }
     }
 
     // Check HTTP status codes
@@ -671,6 +732,310 @@ class ClaudeService {
     if (cleaned > 0) {
       console.log(`Cleaned ${cleaned} expired cache entries`);
     }
+  }
+
+  /**
+   * ============================================================================
+   * NEW METHODS: Two-Stage AI Research Workflow
+   * ============================================================================
+   */
+
+  /**
+   * Search for sources using Claude with web search
+   * @param {string} query - Search query
+   * @param {string} category - Category of sources to find
+   * @param {Object} bank - Bank information
+   * @param {string} refinementPrompt - Optional user refinement prompt
+   * @returns {Promise<Array>} Array of discovered sources
+   */
+  async searchForSources(query, category, bank, refinementPrompt = null) {
+    try {
+      const searchPrompt = refinementPrompt
+        ? `Find sources for ${bank.name} related to ${category}. User's specific request: "${refinementPrompt}"
+
+Return a JSON array of sources found, with each source having:
+- url: The URL of the source
+- title: A descriptive title
+- preview: A 1-2 sentence preview of the content
+- date: Approximate date if available (e.g., "Q2 2025", "Oct 2025")
+- confidence: Your confidence this is relevant (0.0-1.0)
+
+Search query: ${query}
+
+Return ONLY a valid JSON array, no other text.`
+        : `Find the most relevant, recent, and non-paywalled sources for ${bank.name} in the category: ${category}.
+
+Search for: ${query}
+
+IMPORTANT REQUIREMENTS:
+- ONLY return sources from the last 6 months (published after April 2025)
+- EXCLUDE paywalled content (Wall Street Journal, Bloomberg Terminal, Dow Jones, etc.)
+- EXCLUDE press release aggregators (PRNewswire, Business Wire)
+- Focus on FULL documents/transcripts, NOT summaries or highlights
+
+Return a JSON array of sources with:
+- url: The URL
+- title: Title of the source
+- preview: Brief preview (1-2 sentences)
+- date: Date if available (e.g., "Q2 2025", "October 2025")
+- confidence: Relevance confidence (0.0-1.0)
+
+Category-specific requirements:
+${category === 'investorPresentation' ? `
+- **CRITICAL SEARCH STRATEGY:** First, find the bank's investor relations (IR) website:
+  1. Search for: "[Bank Name] investor relations" or "[Bank Name] investor relations website"
+  2. Look for URLs like: investor.bankname.com, ir.bankname.com, or bankname.com/investor
+  3. Once you find the IR website, search within it for "events" or "presentations"
+  4. Look for investor presentation PDFs or earnings call PDF supplements
+- **What to find:**
+  - Investor presentation PDFs (quarterly earnings presentations, investor day decks)
+  - Earnings call PDF supplements (often accompany earnings transcripts)
+  - Event presentations (investor day, conferences, roadshows)
+  - Look in sections like: "Events & Presentations", "Presentations", "Earnings & Events", "Investor Materials"
+- **Search pattern:**
+  1. First query: "[Bank Name] investor relations" to find IR site
+  2. Second query: "[Bank Name] investor relations events presentations" OR "site:ir.bankname.com presentations" OR "site:investor.bankname.com events"
+  3. Look specifically for PDF files - prefer filetype:pdf
+- **Must be:** Official PDF documents from investor relations sites
+- **EXCLUDE:** Marketing brochures, sales materials, press releases
+- **Format:** PDF files only - these are the investor presentations or earnings supplements we need` : ''}
+${category === 'earningsTranscript' ? `
+- MUST be FULL transcripts, NOT summaries or highlights
+- Look for: "earnings call transcript", "quarterly earnings transcript"
+- Prefer: SeekingAlpha.com (free transcripts), Fool.com
+- EXCLUDE: "Earnings Call Highlights", "Key Takeaways", "Summary"
+- MUST include actual Q&A section, not just prepared remarks` : ''}
+${category === 'strategyAnalysis' ? `
+- MUST be detailed strategy documents or analysis (preferably PDF)
+- Look for: strategic plans, digital transformation initiatives, analyst analysis
+- Prefer: Consulting firm reports (McKinsey, BCG, Bain), official strategy documents
+- EXCLUDE: Brief news articles, PR announcements
+- MUST have substantive content (>2000 words or detailed PDF)` : ''}
+${category === 'analystReports' ? `
+- MUST be from reputable analyst/research firms
+- Look for: Forrester, Gartner, IDC, JD Power reports
+- Prefer: Full research reports, industry analysis, competitive benchmarking
+- EXCLUDE: Vendor marketing materials disguised as "reports"
+- MUST be independent third-party analysis` : ''}
+
+Return ONLY a valid JSON array, no other text.`;
+
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 4000,
+        tools: [{
+          type: 'web_search_20250305',
+          name: 'web_search'
+        }],
+        messages: [{
+          role: 'user',
+          content: searchPrompt
+        }],
+        system: 'You are a research assistant specialized in finding financial and business sources. Always use web search to find actual sources.'
+      });
+
+      // Extract text from response
+      let responseText = '';
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          responseText += block.text;
+        }
+      }
+
+      // Try to parse JSON from response
+      try {
+        // Extract JSON array from response (handle case where there's extra text)
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const sources = JSON.parse(jsonMatch[0]);
+          return Array.isArray(sources) ? sources : [];
+        }
+        return [];
+      } catch (parseError) {
+        console.error('Error parsing sources JSON:', parseError);
+        console.error('Response text:', responseText);
+        return [];
+      }
+
+    } catch (error) {
+      console.error('Error searching for sources:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch content from a URL
+   * Uses Claude's built-in web fetching capabilities
+   * @param {string} url - URL to fetch
+   * @returns {Promise<string>} Content of the URL
+   */
+  async fetchSourceContent(url) {
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 8000,
+        messages: [{
+          role: 'user',
+          content: `Please fetch and summarize the content from this URL: ${url}
+
+Extract the key information, focusing on:
+- Main points and findings
+- Financial data or metrics mentioned
+- Strategic initiatives or plans
+- Quotes from executives
+- Any relevant dates or timeframes
+
+Provide a comprehensive but concise summary (2-4 paragraphs).`
+        }]
+      });
+
+      let content = '';
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          content += block.text;
+        }
+      }
+
+      return content || `[Content from ${url}]`;
+
+    } catch (error) {
+      console.error(`Error fetching content from ${url}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate report using ONLY approved sources (no new web searches)
+   * @param {Object} options - Generation options
+   * @param {Object} options.bank - Bank information
+   * @param {Array} options.statements - Financial statements
+   * @param {string} options.sourcesContext - Pre-fetched source content
+   * @param {Array} options.approvedSources - List of approved sources
+   * @param {Function} options.onThinking - Callback for thinking text
+   * @param {Function} options.onText - Callback for analysis text
+   * @returns {Promise<Object>} Generated report
+   */
+  async generateReportFromApprovedSources(options) {
+    const { bank, statements, sourcesContext, approvedSources, onThinking, onText } = options;
+
+    try {
+      // Build modified prompt that uses ONLY provided sources
+      const restrictedPrompt = `You are analyzing ${bank.name} using PRE-PROVIDED sources and financial data.
+
+CRITICAL: Do NOT perform any web searches. Do NOT use the search tool. ALL information must come from the sources provided below.
+
+===== FINANCIAL DATA (Call Reports) =====
+${JSON.stringify(this._formatFinancialData(statements), null, 2)}
+
+===== PRE-APPROVED EXTERNAL SOURCES =====
+${sourcesContext}
+
+===== YOUR TASK =====
+Generate a comprehensive research report about ${bank.name} using ONLY the information provided above.
+
+Follow the standard report structure:
+- Executive Summary
+- Asset and Lending Trends
+- Income and Profitability Analysis
+- Key Financial Ratios
+- Competitive Positioning vs. Peers
+- Leadership and Key Players (if sources available)
+- Strategic Insights (based on provided sources)
+- Risks and Opportunities
+
+When referencing external sources, cite them as: [Source: Title]
+For financial data, cite as: [Call Report: Q# YYYY]
+
+You have ${approvedSources.length} pre-approved external sources plus call report data.
+Do NOT search for additional information.`;
+
+      // Call Claude API with streaming but NO web search tool
+      const stream = await this.client.messages.stream({
+        model: this.model,
+        max_tokens: 16000,
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
+        // NO tools - prevents web searches
+        messages: [{
+          role: 'user',
+          content: restrictedPrompt
+        }],
+        system: 'You are a banking analyst. Use ONLY the provided sources and financial data. Do not search for additional information.'
+      });
+
+      let thinkingText = '';
+      let analysisText = '';
+      let metadata = {};
+
+      // Handle streaming events
+      for await (const event of stream) {
+        if (event.type === 'content_block_start') {
+          // Track content blocks
+        } else if (event.type === 'content_block_delta') {
+          if (event.delta?.type === 'thinking_delta') {
+            thinkingText += event.delta.thinking || '';
+            if (onThinking) {
+              onThinking(event.delta.thinking || '');
+            }
+          } else if (event.delta?.type === 'text_delta') {
+            analysisText += event.delta.text || '';
+            if (onText) {
+              onText(event.delta.text || '');
+            }
+          }
+        } else if (event.type === 'message_start') {
+          metadata.model = event.message?.model;
+          metadata.inputTokens = event.message?.usage?.input_tokens || 0;
+        } else if (event.type === 'message_delta') {
+          metadata.outputTokens = event.delta?.usage?.output_tokens || 0;
+        }
+      }
+
+      return {
+        analysis: analysisText,
+        thinking: thinkingText,
+        metadata,
+        model: this.model,
+        trendsData: this._extractTrendsData(statements)
+      };
+
+    } catch (error) {
+      console.error('Error generating report from approved sources:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Format financial data for prompt
+   * @param {Array} statements - Financial statements
+   * @returns {Object} Formatted data
+   */
+  _formatFinancialData(statements) {
+    return statements.map(stmt => ({
+      period: stmt.reportingPeriod,
+      assets: stmt.balanceSheet?.assets?.totalAssets,
+      equity: stmt.balanceSheet?.equity?.totalEquity,
+      netIncome: stmt.incomeStatement?.netIncome,
+      loans: stmt.balanceSheet?.assets?.earningAssets?.loansAndLeases?.net
+    }));
+  }
+
+  /**
+   * Extract trends data from statements
+   * @param {Array} statements - Financial statements
+   * @returns {Object} Trends data
+   */
+  _extractTrendsData(statements) {
+    // This would extract the same trends data used in other parts of the app
+    // For now, return a simple structure
+    return {
+      periods: statements.map(s => s.reportingPeriod),
+      assets: statements.map(s => s.balanceSheet?.assets?.totalAssets),
+      equity: statements.map(s => s.balanceSheet?.equity?.totalEquity),
+      netIncome: statements.map(s => s.incomeStatement?.netIncome)
+    };
   }
 }
 

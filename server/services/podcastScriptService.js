@@ -25,16 +25,18 @@ class PodcastScriptService {
    * @param {Array<string>} selectedExperts - Array of expert IDs to include
    * @param {Object} trendsData - Financial trends data
    * @param {Function} streamCallback - Optional callback for streaming
+   * @param {Array} agentInsights - Optional agent research insights (for agent-based reports)
+   * @param {Object} agentStats - Optional agent research stats (for agent-based reports)
    * @returns {Promise<Object>} Script with segments array
    */
-  async generateScript(bankName, reportAnalysis, selectedExperts, trendsData, streamCallback = null) {
+  async generateScript(bankName, reportAnalysis, selectedExperts, trendsData, streamCallback = null, agentInsights = null, agentStats = null) {
     try {
       console.log(`Generating podcast script for ${bankName} with experts:`, selectedExperts);
 
       // Build the prompt
       const prompt = selectedExperts.length > 0
-        ? prompts.generatePodcastScript(bankName, reportAnalysis, selectedExperts, trendsData)
-        : prompts.generateSoloScript(bankName, reportAnalysis);
+        ? prompts.generatePodcastScript(bankName, reportAnalysis, selectedExperts, trendsData, agentInsights, agentStats)
+        : prompts.generateSoloScript(bankName, reportAnalysis, agentInsights, agentStats);
 
       if (streamCallback) {
         streamCallback({

@@ -813,8 +813,8 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
 
         <Grid container spacing={2}>
           {/* Efficiency Ratio */}
-          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column' }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Efficiency Ratio
               </Typography>
@@ -831,15 +831,15 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   <Sparkline data={efficiencyData} color={efficiencyData[efficiencyData.length - 1] < 60 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
                 </Box>
               </Box>
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
                 Lower is better • Industry avg: 50-60%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Return on Equity (ROE) */}
-          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column' }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Return on Equity (ROE)
               </Typography>
@@ -856,15 +856,15 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   <Sparkline data={roeData} color={roeData[roeData.length - 1] > 12 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
                 </Box>
               </Box>
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
                 Higher is better • Industry avg: 8-12%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Net Interest Margin (NIM) */}
-          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column' }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Net Interest Margin (NIM)
               </Typography>
@@ -881,15 +881,15 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   <Sparkline data={nimData} color={nimData[nimData.length - 1] > 3.5 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
                 </Box>
               </Box>
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
                 Higher is better • Industry avg: 3-4%
               </Typography>
             </Paper>
           </Grid>
 
           {/* Operating Leverage */}
-          <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
-            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2, bgcolor: '#fff', border: '1px solid #e0e0e0', aspectRatio: 1, display: 'flex', flexDirection: 'column' }}>
               <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5 }}>
                 Operating Leverage (YoY)
               </Typography>
@@ -906,7 +906,7 @@ function TrendsTabCompact({ idrssd, availablePeriods }) {
                   <Sparkline data={operatingLeverageData} color={operatingLeverageData[operatingLeverageData.length - 1] > 1 ? '#2e7d32' : '#ed6c02'} width="100%" height="100%" periods={sortedPeriods} />
                 </Box>
               </Box>
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1, minHeight: '2.5rem', display: 'flex', alignItems: 'flex-start' }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 1 }}>
                 Higher is better
               </Typography>
             </Paper>

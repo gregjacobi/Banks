@@ -34,7 +34,7 @@ Keep segments conversational (1-3 sentences per turn). Natural back-and-forth di
   /**
    * Main podcast generation prompt
    */
-  generatePodcastScript: (bankName, reportAnalysis, selectedExperts, trendsData) => {
+  generatePodcastScript: (bankName, reportAnalysis, selectedExperts, trendsData, agentInsights = null, agentStats = null) => {
     const expertsDescription = {
       WARREN_VAULT: 'Warren Vault is a sharp investor analyst with serious credentials - he talks fast, throws around investor terminology freely, and gets excited about the numbers. Think hedge fund analyst who lives for earnings calls. He\'s confident, energetic, and doesn\'t sugarcoat when something looks bad. Professional but enthusiastic - avoid overusing casual slang like "dude" or "bro".',
       DR_SOFIA_BANKS: 'Dr. Sofia Banks is an upbeat banking professor who explains banking jargon, regulatory context, and fundamental concepts with clarity and enthusiasm. She helps listeners understand the "why" behind banking practices with infectious energy.',
@@ -46,6 +46,25 @@ Keep segments conversational (1-3 sentences per turn). Natural back-and-forth di
       .map(expert => `- ${expertsDescription[expert]}`)
       .join('\n');
 
+    // Build agent research section if available
+    let agentResearchSection = '';
+    if (agentInsights && agentInsights.length > 0) {
+      agentResearchSection = `\n**Agent Research Insights (${agentInsights.length} key discoveries):**
+${agentInsights.map((insight, idx) => {
+  return `[${idx + 1}] ${insight.title} (${insight.insight_type}, ${insight.importance} importance)
+${insight.content}
+Evidence: ${insight.evidence?.join(', ') || 'N/A'}`;
+}).join('\n\n')}
+
+**Agent Research Stats:**
+- ${agentStats?.iterations || 'N/A'} research iterations
+- ${agentInsights.length} insights generated
+- ${agentStats?.documentsQueried?.length || 0} documents queried
+- ${agentStats?.webSearches?.length || 0} web searches performed
+
+These insights represent key findings from an AI agent that actively explored financial data, searched the web, and queried source documents. Incorporate these discoveries naturally into the conversation - they add depth and credibility to the analysis.\n`;
+    }
+
     return `Generate a 10-12 minute podcast script for "The Bankskie Show" analyzing ${bankName}.
 
 **Available Experts for This Episode:**
@@ -53,9 +72,22 @@ ${selectedExpertsText}
 
 **Bank Analysis Report:**
 ${reportAnalysis}
-
+${agentResearchSection}
 **Financial Trends Data:**
 ${JSON.stringify(trendsData, null, 2)}
+
+**CRITICAL METRIC INTERPRETATION - READ CAREFULLY:**
+When discussing financial metrics in the podcast, you MUST correctly interpret the direction:
+
+1. **Efficiency Ratio**: LOWER is better. A 45% efficiency ratio is excellent, while 75% is poor. When the efficiency ratio decreases, that's improvement. When it increases, that's worsening performance.
+
+2. **Operating Leverage**: HIGHER is better. Operating leverage measures how changes in revenue amplify changes in operating income (operational scalability). **Formula:** Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where Total Revenue = Total Interest Income + Total Non-Interest Income, and PPNR (Pre-Provision Net Revenue) = Total Revenue - Total Operating Expenses. Higher values (> 1.0) indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT). Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations. Example: "The bank achieved 2.0x operating leverage this quarter, meaning PPNR grew twice as fast as Total Revenue - that's exactly what you want to see."
+
+3. **ROE (Return on Equity)**: HIGHER is better. 15% is strong, 5% is weak.
+
+4. **NIM (Net Interest Margin)**: HIGHER is better. 4% is healthy, 2% is compressed.
+
+**DO NOT make the mistake of saying higher efficiency ratio is better - it's the opposite. Operating leverage should be HIGHER (values > 1.0), indicating PPNR growing faster than Total Revenue - this is the goal. Formula: (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where PPNR = Pre-Provision Net Revenue (Total Revenue - Operating Expenses).**
 
 **Podcast Structure:**
 
@@ -110,11 +142,42 @@ Begin the script now:`;
   /**
    * Fallback for when no experts are selected (Bankskie solo)
    */
-  generateSoloScript: (bankName, reportAnalysis) => {
+  generateSoloScript: (bankName, reportAnalysis, agentInsights = null, agentStats = null) => {
+    // Build agent research section if available
+    let agentResearchSection = '';
+    if (agentInsights && agentInsights.length > 0) {
+      agentResearchSection = `\n**Agent Research Insights (${agentInsights.length} key discoveries):**
+${agentInsights.map((insight, idx) => {
+  return `[${idx + 1}] ${insight.title} (${insight.insight_type}, ${insight.importance} importance)
+${insight.content}
+Evidence: ${insight.evidence?.join(', ') || 'N/A'}`;
+}).join('\n\n')}
+
+**Agent Research Stats:**
+- ${agentStats?.iterations || 'N/A'} research iterations
+- ${agentInsights.length} insights generated
+- ${agentStats?.documentsQueried?.length || 0} documents queried
+- ${agentStats?.webSearches?.length || 0} web searches performed
+
+These insights represent key findings from an AI agent that actively explored financial data, searched the web, and queried source documents. Incorporate these discoveries naturally into your analysis - they add depth and credibility.\n`;
+    }
+
     return `Generate a 8-10 minute solo podcast script where Bankskie analyzes ${bankName} by himself.
 
 **Bank Analysis:**
 ${reportAnalysis}
+${agentResearchSection}
+
+**CRITICAL METRIC INTERPRETATION - READ CAREFULLY:**
+When discussing financial metrics, you MUST correctly interpret the direction:
+
+1. **Efficiency Ratio**: LOWER is better. A 45% efficiency ratio is excellent, while 75% is poor. When the efficiency ratio decreases, that's improvement.
+
+2. **Operating Leverage**: HIGHER is better. Operating leverage measures operational scalability. When revenue grows faster than expenses (positive operating leverage or values > 1.0), that's GOOD. Sustained positive operating leverage over multiple quarters indicates scalable operations.
+
+3. **ROE**: HIGHER is better. 4. **NIM**: HIGHER is better.
+
+**DO NOT make the mistake of saying higher efficiency ratio is better - it's the opposite. Operating leverage should be HIGHER (values > 1.0), indicating PPNR growing faster than Total Revenue - this is the goal. Formula: (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where PPNR = Pre-Provision Net Revenue (Total Revenue - Operating Expenses).**
 
 Bankskie should:
 - Be energetic and engaging as he walks through the analysis
