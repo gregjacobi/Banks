@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Card,
@@ -314,22 +314,55 @@ function BankComparisonRow({ comparison }) {
  */
 function MultiBankUBPRValidation({ banks }) {
   const [selectedBanks, setSelectedBanks] = useState([]);
-  const [period, setPeriod] = useState('2024-12-31');
+  const [period, setPeriod] = useState('');
+  const [periods, setPeriods] = useState([]);
+  const [loadingPeriods, setLoadingPeriods] = useState(false);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
 
-  // Available periods (most recent quarters)
-  const periods = [
-    '2025-06-30',
-    '2025-03-31',
-    '2024-12-31',
-    '2024-09-30',
-    '2024-06-30',
-    '2024-03-31'
-  ];
+  // Fetch available periods when banks are selected
+  useEffect(() => {
+    const fetchPeriods = async () => {
+      if (selectedBanks.length === 0) {
+        setPeriods([]);
+        setPeriod('');
+        return;
+      }
+
+      setLoadingPeriods(true);
+      try {
+        const idrssds = selectedBanks.map(b => b.idrssd).join(',');
+        const response = await axios.get(`/api/banks/available-periods?idrssds=${idrssds}`);
+        const fetchedPeriods = response.data.periods || [];
+        setPeriods(fetchedPeriods);
+        
+        // Set period to most recent if available
+        if (fetchedPeriods.length > 0) {
+          setPeriod(prevPeriod => {
+            // If current period is not in the list, set to most recent
+            if (!fetchedPeriods.includes(prevPeriod)) {
+              return fetchedPeriods[0];
+            }
+            return prevPeriod || fetchedPeriods[0];
+          });
+        } else {
+          setPeriod('');
+        }
+      } catch (err) {
+        console.error('Error fetching available periods:', err);
+        setError('Failed to load available periods');
+        setPeriods([]);
+        setPeriod('');
+      } finally {
+        setLoadingPeriods(false);
+      }
+    };
+
+    fetchPeriods();
+  }, [selectedBanks]);
 
   const handleRunValidation = async () => {
     if (selectedBanks.length === 0) {
@@ -421,18 +454,42 @@ function MultiBankUBPRValidation({ banks }) {
 
           {/* Period Selection */}
           <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth>
+            {loadingPeriods && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="caption" color="text.secondary">
+                  Loading available periods...
+                </Typography>
+              </Box>
+            )}
+            <FormControl fullWidth disabled={loadingPeriods || periods.length === 0}>
               <InputLabel>Reporting Period</InputLabel>
               <Select
                 value={period}
                 label="Reporting Period"
                 onChange={(e) => setPeriod(e.target.value)}
+                renderValue={(value) => {
+                  if (!value) return '';
+                  // Parse date string (YYYY-MM-DD) as local date to avoid timezone issues
+                  const [year, month, day] = value.split('-').map(Number);
+                  const date = new Date(year, month - 1, day);
+                  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                }}
               >
-                {periods.map((p) => (
-                  <MenuItem key={p} value={p}>
-                    {new Date(p).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                  </MenuItem>
-                ))}
+                {periods.length === 0 ? (
+                  <MenuItem disabled>No periods available for selected banks</MenuItem>
+                ) : (
+                  periods.map((p) => {
+                    // Parse date string (YYYY-MM-DD) as local date to avoid timezone issues
+                    const [year, month, day] = p.split('-').map(Number);
+                    const date = new Date(year, month - 1, day);
+                    return (
+                      <MenuItem key={p} value={p}>
+                        {date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                      </MenuItem>
+                    );
+                  })
+                )}
               </Select>
             </FormControl>
           </Box>

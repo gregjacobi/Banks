@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const prompts = require('../prompts/bankAnalysis');
+const modelResolver = require('./modelResolver');
 
 /**
  * Service for interacting with Claude API
@@ -22,7 +23,12 @@ class ClaudeService {
       timeout: 300000, // 5 minutes (300,000ms) - increased from default 60s
       maxRetries: 0 // Disable SDK's built-in retries, we handle our own
     });
-    this.model = 'claude-sonnet-4-20250514'; // Latest Sonnet with extended thinking
+    
+    // Initialize with fallback, will be updated async
+    this.model = modelResolver.getModelSync();
+    
+    // Fetch latest model asynchronously
+    this.initializeModel();
 
     // Retry configuration
     this.maxRetries = 3;
@@ -40,6 +46,20 @@ class ClaudeService {
     // Cache format: { cacheKey: { data, timestamp } }
     this.cache = new Map();
     this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+  }
+
+  /**
+   * Initialize model asynchronously
+   */
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestSonnetModel();
+      this.model = latestModel;
+      console.log(`ClaudeService initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+      // Keep using fallback model
+    }
   }
 
   /**
@@ -822,7 +842,11 @@ Return ONLY a valid JSON array, no other text.`;
 
       const response = await this.client.messages.create({
         model: this.model,
-        max_tokens: 4000,
+        max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
         tools: [{
           type: 'web_search_20250305',
           name: 'web_search'
@@ -873,7 +897,11 @@ Return ONLY a valid JSON array, no other text.`;
     try {
       const response = await this.client.messages.create({
         model: this.model,
-        max_tokens: 8000,
+        max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
         messages: [{
           role: 'user',
           content: `Please fetch and summarize the content from this URL: ${url}

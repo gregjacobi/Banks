@@ -69,13 +69,12 @@ class UBPRService {
     const isFresh = await UBPRData.isDataFresh(idrssd, reportingPeriod);
 
     if (cached && isFresh) {
-      console.log(`Using cached UBPR data for ${idrssd} - ${reportingPeriod}`);
+      console.log(`Using cached UBPR data for ${idrssd} - ${reportingPeriod} (dataSource: ${cached.dataSource})`);
       return cached;
     }
 
     if (!this.isConfigured()) {
-      console.warn('FFIEC API credentials not configured. Using simulated data.');
-      return this.generateSimulatedData(idrssd, reportingPeriod);
+      throw new Error('FFIEC API credentials not configured. Please set FFIEC_API_USERNAME and FFIEC_API_PASSWORD in .env file');
     }
 
     this.checkRateLimit();
@@ -115,7 +114,18 @@ class UBPRService {
       console.log(`\nResponse status: ${response.status}`);
 
       if (response.status !== 200) {
-        throw new Error(`FFIEC API returned status ${response.status}: ${response.statusText || 'Unknown error'}`);
+        const errorMsg = response.data?.Message || response.statusText || 'Unknown error';
+        console.error(`FFIEC API error: ${errorMsg}`);
+        // For 400 errors (invalid FI ID or period), return stale cache if available, otherwise throw
+        if (response.status === 400) {
+          console.log(`UBPR data not available for ${idrssd} at ${reportingPeriod} from API.`);
+          if (cached) {
+            console.log('Returning stale cached data due to API 400 error');
+            return cached;
+          }
+          throw new Error(`UBPR data not available for bank ${idrssd} at period ${reportingPeriod}. ${errorMsg}`);
+        }
+        throw new Error(`FFIEC API returned status ${response.status}: ${errorMsg}`);
       }
 
       this.requestCount++;
@@ -143,7 +153,9 @@ class UBPRService {
       // Save to MongoDB
       await this.saveUBPRData(ubprData);
 
-      console.log(`=== FFIEC API Success ===\n`);
+      console.log(`=== FFIEC API Success ===`);
+      console.log(`Saved UBPR data for ${idrssd} - ${reportingPeriod}`);
+      console.log(`Sample values: Total Assets=${ubprData.rawData?.['uc:UBPR2170']?._ || 'N/A'}\n`);
       return ubprData;
 
     } catch (error) {
@@ -163,8 +175,8 @@ class UBPRService {
         return cached;
       }
 
-      // Fall back to simulated data for development
-      return this.generateSimulatedData(idrssd, reportingPeriod);
+      // No cached data available - throw error
+      throw new Error(`Failed to fetch UBPR data for ${idrssd} at ${reportingPeriod}: ${error.message}`);
     }
   }
 
@@ -181,15 +193,19 @@ class UBPRService {
     for (let i = 0; i < idrssds.length; i += batchSize) {
       const batch = idrssds.slice(i, i + batchSize);
 
-      const batchPromises = batch.map(idrssd =>
-        this.fetchUBPRData(idrssd, reportingPeriod).catch(err => {
+      const batchPromises = batch.map(async (idrssd) => {
+        try {
+          return await this.fetchUBPRData(idrssd, reportingPeriod);
+        } catch (err) {
           console.error(`Failed to fetch UBPR for ${idrssd}:`, err.message);
-          return null;
-        })
-      );
+          // Return an object with idrssd so we can track which banks failed
+          return { idrssd, error: err.message };
+        }
+      });
 
       const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults.filter(r => r !== null));
+      // Only include successful results (those with rawData, not error)
+      results.push(...batchResults.filter(r => r && !r.error));
 
       // Small delay between batches
       if (i + batchSize < idrssds.length) {
@@ -318,8 +334,21 @@ class UBPRService {
 
   /**
    * Format date for FFIEC API headers (MM/DD/YYYY)
+   * Parses date string (YYYY-MM-DD) as local date to avoid timezone issues
    */
   formatDateForFFIECHeader(date) {
+    // If date is a string in YYYY-MM-DD format, parse it as local date
+    if (typeof date === 'string' && date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = date.split('-').map(Number);
+      // Create date in local timezone (month is 0-indexed in Date constructor)
+      const d = new Date(year, month - 1, day);
+      const formattedMonth = String(d.getMonth() + 1).padStart(2, '0');
+      const formattedDay = String(d.getDate()).padStart(2, '0');
+      const formattedYear = d.getFullYear();
+      return `${formattedMonth}/${formattedDay}/${formattedYear}`;
+    }
+    
+    // Fallback for Date objects or other formats
     const d = new Date(date);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -346,43 +375,6 @@ class UBPRService {
     }
   }
 
-  /**
-   * Generate simulated UBPR data for development/testing
-   * This allows development without FFIEC API credentials
-   */
-  generateSimulatedData(idrssd, reportingPeriod) {
-    console.log(`Generating simulated UBPR data for ${idrssd}`);
-
-    // Generate realistic-looking but simulated metrics
-    const baseValue = parseInt(idrssd.slice(-3)) / 1000;
-
-    return {
-      idrssd,
-      reportingPeriod: new Date(reportingPeriod),
-      metrics: {
-        roa: 1.0 + baseValue,
-        roe: 11.0 + (baseValue * 2),
-        nim: 2.8 + (baseValue * 0.5),
-        efficiencyRatio: 58.0 + (baseValue * 5),
-        tier1LeverageRatio: 9.5 + baseValue,
-        tier1RiskBasedCapital: 12.0 + baseValue,
-        totalRiskBasedCapital: 14.0 + baseValue,
-        nonperformingAssetsToAssets: 0.5 + (baseValue * 0.2),
-        nonperformingLoansToLoans: 0.6 + (baseValue * 0.2),
-        netChargeoffsToLoans: 0.3 + (baseValue * 0.1),
-        loanLossReserveToLoans: 1.2 + (baseValue * 0.3),
-        loansToDeposits: 75.0 + (baseValue * 5),
-        coreDepositsToAssets: 82.0 + (baseValue * 3),
-        assetGrowth: 5.0 + (baseValue * 2),
-        loanGrowth: 4.5 + (baseValue * 2),
-        depositGrowth: 3.8 + (baseValue * 2)
-      },
-      rawData: { simulated: true },
-      dataSource: 'manual',
-      isComplete: true,
-      fetchedAt: new Date()
-    };
-  }
 
   /**
    * Get available reporting periods for a bank from UBPR

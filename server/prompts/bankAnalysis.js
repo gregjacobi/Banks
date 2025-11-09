@@ -114,6 +114,22 @@ You MUST cite all claims with inline references:
 # Asset and Lending Trends
 Provide 2-3 paragraphs analyzing the bank's asset composition and lending strategy.
 
+**CRITICAL - Number Labeling Requirements:**
+When discussing asset composition, financial metrics, or any dollar amounts, you MUST explicitly label what each number represents. Never list numbers without context.
+
+**CORRECT Format Examples:**
+- "Business loans totaled $146.8 billion [Call Report: Q2 2025], representing 37% of total assets"
+- "Securities holdings of $44.4 billion [Call Report: Q2 2025] account for 11% of total assets"
+- "Cash and cash equivalents stood at $4.6 billion [Call Report: Q2 2025]"
+- "Other assets, including client-related balances and operational assets, totaled $31.9 billion [Call Report: Q2 2025]"
+
+**INCORRECT Format (DO NOT USE):**
+- "$146.8 billion [Call Report: Q2 2025], representing 37% of total assets" (missing label)
+- "$44.4 billion [Call Report: Q2 2025], only 11% of total assets" (missing label)
+- "$4.6 billion [Call Report: Q2 2025]" (missing label)
+
+**Rule:** Every dollar amount, percentage, or metric MUST be preceded or immediately followed by a clear label identifying what it represents (e.g., "Total assets of $X", "Net income of $Y", "Efficiency ratio of Z%", "Business loans totaling $X").
+
 Use subsections for clarity:
 ### Business Lending
 Regular paragraph describing business lending trends...
@@ -339,7 +355,32 @@ etc.
 
 For each section, reference specific data points from the provided financial statements.
 Explain how trends impact the bank positively or negatively.
-Provide context from news and investor materials where relevant.`,
+Provide context from news and investor materials where relevant.
+
+**CRITICAL - Number Labeling Requirements (Applies to ALL Sections):**
+When discussing ANY financial metrics, dollar amounts, percentages, or ratios, you MUST explicitly label what each number represents. Never list numbers without clear context.
+
+**Examples of CORRECT Format:**
+- "Total assets grew to $15.2 billion [Call Report: Q2 2025]"
+- "Net interest income of $125 million [Call Report: Q2 2025] increased 8% year-over-year"
+- "The efficiency ratio improved to 58% [Call Report: Q2 2025]"
+- "Business loans totaling $8.5 billion [Call Report: Q2 2025] represent 56% of total assets"
+- "Securities holdings of $3.2 billion [Call Report: Q2 2025] account for 21% of the balance sheet"
+
+**Examples of INCORRECT Format (DO NOT USE):**
+- "$15.2 billion [Call Report: Q2 2025]" (missing label - what is this?)
+- "$125 million [Call Report: Q2 2025]" (missing label - what metric?)
+- "58% [Call Report: Q2 2025]" (missing label - what ratio?)
+- "$8.5 billion [Call Report: Q2 2025], representing 56% of total assets" (missing label - what category?)
+
+**Rule:** Every number must be clearly identified. Use phrases like:
+- "[Metric name] of $X"
+- "[Category] totaling $X"
+- "[Ratio name] of X%"
+- "[Metric] at $X"
+- "[Category] stood at $X"
+
+This applies to ALL sections: Asset Composition, Income Analysis, Ratios, Expenses, etc.`,
 
   /**
    * Asset trend analysis prompt

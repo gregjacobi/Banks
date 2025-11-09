@@ -1,6 +1,9 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const PDF = require('../models/PDF');
+const PDFMetricsCache = require('../models/PDFMetricsCache');
+const modelResolver = require('./modelResolver');
 const fs = require('fs').promises;
+const crypto = require('crypto');
 
 /**
  * PDF Metrics Extraction Agent
@@ -13,7 +16,39 @@ class PDFMetricsAgent {
       apiKey: process.env.ANTHROPIC_API_KEY,
       timeout: 180000 // 3 minutes
     });
-    this.model = 'claude-sonnet-4-20250514';
+    this.model = modelResolver.getModelSync();
+    this.initializeModel();
+  }
+
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestSonnetModel();
+      this.model = latestModel;
+      console.log(`PDFMetricsAgent initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+    }
+  }
+
+  /**
+   * Compute hash of PDF file(s) for cache key
+   */
+  async computePDFHash(pdfs) {
+    const hashes = [];
+    for (const pdf of pdfs) {
+      try {
+        const pdfPath = pdf.getFilePath();
+        const stats = await fs.stat(pdfPath);
+        // Use file size + modification time + PDF ID as hash components
+        const hashInput = `${pdf.pdfId}-${stats.size}-${stats.mtimeMs}`;
+        const hash = crypto.createHash('md5').update(hashInput).digest('hex');
+        hashes.push(hash);
+      } catch (error) {
+        console.error(`Error computing hash for PDF ${pdf.pdfId}:`, error.message);
+      }
+    }
+    // Combine all PDF hashes
+    return crypto.createHash('md5').update(hashes.sort().join('-')).digest('hex');
   }
 
   /**
@@ -68,6 +103,31 @@ class PDFMetricsAgent {
 
       console.log(`Using ${pdfsToAnalyze.length} PDF(s) out of ${recentPDFs.length} found`);
 
+      // Compute hash of PDFs to check cache
+      const pdfHash = await this.computePDFHash(pdfsToAnalyze);
+      
+      // Check cache first
+      const cached = await PDFMetricsCache.findByBankAndPeriod(idrssd, reportingPeriod, pdfHash);
+      if (cached) {
+        console.log(`Using cached PDF metrics for ${idrssd} - ${reportingPeriod} (cached at ${cached.extractedAt})`);
+        return {
+          hasData: cached.metrics !== null,
+          metrics: cached.metrics,
+          balanceSheet: cached.balanceSheet,
+          incomeStatement: cached.incomeStatement,
+          sources: cached.sources,
+          confidence: cached.confidence,
+          note: cached.note,
+          warnings: cached.warnings || [],
+          period: cached.period,
+          quarter: cached.quarter,
+          incomeStatementBasis: cached.incomeStatementBasis,
+          metricsBasis: cached.metricsBasis
+        };
+      }
+
+      console.log(`No cache found, extracting metrics from PDFs...`);
+
       // Build prompt and attach PDFs
       const messageContent = [];
 
@@ -106,7 +166,11 @@ class PDFMetricsAgent {
       try {
         const response = await this.client.messages.create({
           model: this.model,
-          max_tokens: 4096,
+          max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+          thinking: {
+            type: 'enabled',
+            budget_tokens: 10000
+          },
           messages: [{
             role: 'user',
             content: messageContent
@@ -125,6 +189,40 @@ class PDFMetricsAgent {
 
         console.log(`PDF metrics extracted for bank ${idrssd}: ${extracted.metrics ? 'Success' : 'No data'}`);
 
+        // Cache the results
+        try {
+          await PDFMetricsCache.findOneAndUpdate(
+            {
+              idrssd,
+              reportingPeriod: new Date(reportingPeriod),
+              pdfHash
+            },
+            {
+              idrssd,
+              reportingPeriod: new Date(reportingPeriod),
+              pdfHash,
+              pdfIds: pdfsToAnalyze.map(p => p.pdfId),
+              metrics: extracted.metrics,
+              balanceSheet: extracted.balanceSheet,
+              incomeStatement: extracted.incomeStatement,
+              sources: extracted.sources,
+              confidence: extracted.confidence,
+              note: extracted.note,
+              warnings: extracted.warnings || [],
+              period: extracted.period,
+              quarter: extracted.quarter,
+              incomeStatementBasis: extracted.incomeStatementBasis,
+              metricsBasis: extracted.metricsBasis,
+              extractedAt: new Date()
+            },
+            { upsert: true, new: true }
+          );
+          console.log(`Cached PDF metrics for ${idrssd} - ${reportingPeriod}`);
+        } catch (cacheError) {
+          console.error(`Error caching PDF metrics:`, cacheError.message);
+          // Don't fail the request if caching fails
+        }
+
         return {
           hasData: extracted.metrics !== null,
           metrics: extracted.metrics,
@@ -133,6 +231,11 @@ class PDFMetricsAgent {
           sources: extracted.sources,
           confidence: extracted.confidence,
           note: extracted.note,
+          warnings: extracted.warnings || [],
+          period: extracted.period,
+          quarter: extracted.quarter,
+          incomeStatementBasis: extracted.incomeStatementBasis,
+          metricsBasis: extracted.metricsBasis,
           rawResponse: responseText
         };
 

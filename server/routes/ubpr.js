@@ -17,8 +17,8 @@ router.get('/status', (req, res) => {
     configured: ubprService.isConfigured(),
     message: ubprService.isConfigured()
       ? 'UBPR service is configured and ready'
-      : 'UBPR API credentials not configured. Using simulated data. See ubprService.js for setup instructions.',
-    dataSource: ubprService.isConfigured() ? 'ffiec_api' : 'simulated'
+      : 'UBPR API credentials not configured. Please set FFIEC_API_USERNAME and FFIEC_API_PASSWORD in .env file.',
+    dataSource: ubprService.isConfigured() ? 'ffiec_api' : 'not_configured'
   });
 });
 
@@ -131,13 +131,22 @@ router.post('/compare-batch', async (req, res) => {
     const comparisons = idrssds.map((idrssd, index) => {
       const pdfMetrics = pdfMetricsList[index];
       const ourStmt = ourStatements.find(s => s.idrssd === idrssd);
-      const ubprData = ubprDataList.find(u => u.idrssd === idrssd);
+      const ubprData = ubprDataList.find(u => u && u.idrssd === idrssd);
 
-      if (!ourStmt || !ubprData) {
+      if (!ourStmt) {
         return {
           idrssd,
           bankName: instMap.get(idrssd) || 'Unknown',
-          error: !ourStmt ? 'No financial statement found' : 'No UBPR data found',
+          error: 'No financial statement found',
+          status: 'missing_data'
+        };
+      }
+
+      if (!ubprData) {
+        return {
+          idrssd,
+          bankName: instMap.get(idrssd) || 'Unknown',
+          error: 'No UBPR data available. The FFIEC API may not have data for this bank/period combination.',
           status: 'missing_data'
         };
       }
@@ -284,11 +293,56 @@ function compareMetrics(ourStatement, ubprData) {
  * @returns {number|null} Extracted value or null (converted to thousands to match Call Report scale)
  */
 function getUBPRField(xbrl, fieldCode, contextRef = null) {
-  if (!xbrl) return null;
+  if (!xbrl) {
+    console.log(`[getUBPRField] No XBRL data provided for field ${fieldCode}`);
+    return null;
+  }
+
 
   const key = `uc:${fieldCode}`;
   const element = xbrl[key];
-  if (!element) return null;
+  
+  // Helper to extract and convert value based on unit
+  const extractValue = (elem) => {
+    if (!elem) return null;
+    
+    const singleElem = Array.isArray(elem) ? elem[0] : elem;
+    const value = singleElem._ || singleElem;
+    const numValue = value && !isNaN(parseFloat(value)) ? parseFloat(value) : null;
+    
+    if (numValue === null) return null;
+    
+    // Check unit to determine conversion
+    // XBRL uses unitRef to indicate the unit (e.g., 'USD', 'PURE' for ratios)
+    const unitRef = singleElem.$?.unitRef;
+    
+    // If unitRef is 'PURE', it's a ratio/percentage - no conversion needed
+    if (unitRef === 'PURE') {
+      return numValue;
+    }
+    
+    // For dollar amounts, convert from dollars to thousands to match Call Report scale
+    // UBPR XBRL values are in actual dollars, so we divide by 1000 to convert to thousands
+    return numValue / 1000;
+  };
+  
+  if (!element) {
+    // Try alternative key formats
+    const altKey1 = fieldCode; // Without uc: prefix
+    const altKey2 = `UBPR${fieldCode}`; // If fieldCode doesn't include UBPR prefix
+    const altElement = xbrl[altKey1] || xbrl[altKey2];
+    
+    if (!altElement) {
+      // Debug: log available keys that start with UBPR
+      const availableKeys = Object.keys(xbrl).filter(k => k.includes('UBPR') || k.includes(fieldCode));
+      if (availableKeys.length > 0 && availableKeys.length < 20) {
+        console.log(`[getUBPRField] Field ${fieldCode} not found. Available similar keys: ${availableKeys.slice(0, 10).join(', ')}`);
+      }
+      return null;
+    }
+    
+    return extractValue(altElement);
+  }
 
   // Handle array (multiple contexts/periods)
   if (Array.isArray(element)) {
@@ -296,25 +350,15 @@ function getUBPRField(xbrl, fieldCode, contextRef = null) {
     if (contextRef) {
       const matched = element.find(e => e.$?.contextRef === contextRef);
       if (matched) {
-        const value = matched._ || matched;
-        const numValue = value && !isNaN(parseFloat(value)) ? parseFloat(value) : null;
-        // Convert from dollars to thousands to match Call Report scale
-        return numValue !== null ? numValue / 1000 : null;
+        return extractValue(matched);
       }
     }
     // Otherwise return first element
-    const first = element[0];
-    const value = first._ || first;
-    const numValue = value && !isNaN(parseFloat(value)) ? parseFloat(value) : null;
-    // Convert from dollars to thousands to match Call Report scale
-    return numValue !== null ? numValue / 1000 : null;
+    return extractValue(element[0]);
   }
 
   // Handle single element
-  const value = element._ || element;
-  const numValue = value && !isNaN(parseFloat(value)) ? parseFloat(value) : null;
-  // Convert from dollars to thousands to match Call Report scale
-  return numValue !== null ? numValue / 1000 : null;
+  return extractValue(element);
 }
 
 /**
@@ -460,6 +504,22 @@ function extractFormulaBreakdown(ourStatement, ubprData) {
 function extractBalanceSheetItems(ourStatement, ubprData) {
   const bs = ourStatement.balanceSheet;
   const xbrl = ubprData.rawData;
+
+  // Debug: Log XBRL structure for first call
+  if (!extractBalanceSheetItems._debugged) {
+    console.log('[extractBalanceSheetItems] XBRL data type:', typeof xbrl);
+    console.log('[extractBalanceSheetItems] XBRL is array:', Array.isArray(xbrl));
+    console.log('[extractBalanceSheetItems] XBRL keys:', xbrl ? Object.keys(xbrl).slice(0, 20) : 'null');
+    console.log('[extractBalanceSheetItems] Data source:', ubprData.dataSource);
+    if (xbrl && typeof xbrl === 'object') {
+      const sampleKeys = Object.keys(xbrl).filter(k => k.includes('UBPR')).slice(0, 5);
+      console.log('[extractBalanceSheetItems] Sample UBPR keys:', sampleKeys);
+      if (sampleKeys.length > 0) {
+        console.log('[extractBalanceSheetItems] Sample key structure:', JSON.stringify(xbrl[sampleKeys[0]], null, 2).substring(0, 200));
+      }
+    }
+    extractBalanceSheetItems._debugged = true;
+  }
 
   // Calculate earning assets (same logic as in calculateDerivedMetrics.js)
   const earningAssets =

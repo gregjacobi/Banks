@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const prompts = require('../prompts/podcastGeneration');
+const modelResolver = require('./modelResolver');
 
 /**
  * Service for generating podcast scripts using Claude
@@ -15,7 +16,18 @@ class PodcastScriptService {
     this.client = new Anthropic({
       apiKey: apiKey
     });
-    this.model = 'claude-sonnet-4-20250514';
+    this.model = modelResolver.getModelSync();
+    this.initializeModel();
+  }
+
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestSonnetModel();
+      this.model = latestModel;
+      console.log(`PodcastScriptService initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+    }
   }
 
   /**
@@ -49,6 +61,10 @@ class PodcastScriptService {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 16000,
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
         messages: [{
           role: 'user',
           content: prompt

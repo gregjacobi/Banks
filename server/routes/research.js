@@ -159,264 +159,6 @@ router.delete('/:idrssd/job', async (req, res) => {
 });
 
 /**
- * GET /api/research/:idrssd/generate-stream
- * Start report generation with SSE streaming
- * Also creates a job tracker for fallback polling
- */
-router.get('/:idrssd/generate-stream', async (req, res) => {
-  try {
-    const { idrssd } = req.params;
-
-    // Create a background job for tracking
-    const jobId = jobTracker.createJob(idrssd, 'report');
-
-    // Set up SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    const sendEvent = (event, data) => {
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    sendEvent('status', { jobId, message: 'Starting report generation...' });
-
-    // Generate report with streaming
-    try {
-      await generateReportWithStreaming(idrssd, jobId, sendEvent);
-      sendEvent('complete', { message: 'Report generation complete' });
-    } catch (error) {
-      console.error(`[Job ${jobId}] Error:`, error);
-      jobTracker.failJob(jobId, error);
-      sendEvent('error', { message: error.message });
-    } finally {
-      res.end();
-    }
-
-  } catch (error) {
-    console.error('Error starting streaming generation:', error);
-    res.status(500).json({ error: 'Failed to start generation' });
-  }
-});
-
-/**
- * POST /api/research/:idrssd/generate-background
- * Start report generation as a background job
- * Returns immediately with a job ID
- */
-router.post('/:idrssd/generate-background', async (req, res) => {
-  try {
-    const { idrssd } = req.params;
-
-    // Create a background job
-    const jobId = jobTracker.createJob(idrssd, 'report');
-
-    // Return immediately with job ID
-    res.json({
-      success: true,
-      jobId,
-      message: 'Report generation started in background'
-    });
-
-    // Start generation in background (don't await)
-    generateReportInBackground(idrssd, jobId).catch(error => {
-      console.error(`[Job ${jobId}] Fatal error:`, error);
-      jobTracker.failJob(jobId, error);
-    });
-
-  } catch (error) {
-    console.error('Error starting background job:', error);
-    res.status(500).json({ error: 'Failed to start background job' });
-  }
-});
-
-/**
- * GET /api/research/:idrssd/generate
- * Generate a new research report for a bank
- * This is a long-running operation that returns status updates via SSE
- * Using GET instead of POST because EventSource API only supports GET
- */
-router.get('/:idrssd/generate', async (req, res) => {
-  try {
-    const { idrssd } = req.params;
-
-    // Set up Server-Sent Events for real-time status updates
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-    res.setHeader('Transfer-Encoding', 'chunked'); // Force chunked encoding
-
-    // Disable compression for this route
-    res.set('Content-Encoding', 'none');
-
-    res.flushHeaders(); // Send headers immediately
-
-    // Send initial comment to establish connection
-    res.write(': connected\n\n');
-
-    const sendStatus = (stage, message, data = {}) => {
-      const payload = JSON.stringify({ stage, message, ...data });
-      console.log('Sending SSE:', stage, message); // Debug log
-      res.write(`data: ${payload}\n\n`);
-
-      // Force flush using internal socket
-      if (res.socket && res.socket.writable) {
-        res.socket.uncork();
-      }
-    };
-
-    // Step 1: Fetch bank information
-    sendStatus('init', prompts.statusMessages.init);
-
-    const institution = await Institution.findOne({ idrssd });
-    if (!institution) {
-      sendStatus('error', 'Bank not found');
-      res.end();
-      return;
-    }
-
-    // Step 2: Fetch time-series financial data
-    sendStatus('fetching', prompts.statusMessages.fetchingData);
-
-    const financialStatements = await FinancialStatement.find({ idrssd })
-      .sort({ reportingPeriod: 1 })
-      .limit(20); // Last 20 quarters (5 years max)
-
-    if (financialStatements.length === 0) {
-      sendStatus('error', 'No financial data found for this bank');
-      res.end();
-      return;
-    }
-
-    // Step 3: Prepare trends data
-    const trendsData = prepareTrendsData(financialStatements);
-    const latestStatement = financialStatements[financialStatements.length - 1];
-
-    // Step 3.5: Fetch peer analysis data
-    const peerAnalysis = latestStatement.peerAnalysis || null;
-    let peerData = null;
-
-    if (peerAnalysis && peerAnalysis.peers && peerAnalysis.peers.peerIds) {
-      // Get peer bank names and latest metrics
-      const peerIds = peerAnalysis.peers.peerIds;
-      const peerInstitutions = await Institution.find({
-        idrssd: { $in: peerIds }
-      }).select('idrssd name').lean();
-
-      const peerStatements = await FinancialStatement.find({
-        idrssd: { $in: peerIds },
-        reportingPeriod: latestStatement.reportingPeriod
-      }).select('idrssd ratios balanceSheet.assets.totalAssets').lean();
-
-      const peerMap = new Map(peerInstitutions.map(p => [p.idrssd, p.name]));
-
-      peerData = {
-        count: peerAnalysis.peers.count,
-        rankings: peerAnalysis.rankings,
-        peerAverages: peerAnalysis.peerAverages,
-        peerBanks: peerStatements.map(stmt => ({
-          idrssd: stmt.idrssd,
-          name: peerMap.get(stmt.idrssd) || `Bank ${stmt.idrssd}`,
-          totalAssets: stmt.balanceSheet?.assets?.totalAssets || 0,
-          efficiencyRatio: stmt.ratios?.efficiencyRatio,
-          roe: stmt.ratios?.roe,
-          roa: stmt.ratios?.roa,
-          nim: stmt.ratios?.netInterestMargin
-        })).sort((a, b) => b.totalAssets - a.totalAssets)
-      };
-    }
-
-    const bankInfo = {
-      idrssd: institution.idrssd,
-      name: institution.name,
-      city: institution.city,
-      state: institution.state,
-      website: institution.website,
-      totalAssets: latestStatement.balanceSheet.assets.totalAssets,
-      latestPeriod: latestStatement.reportingPeriod.toISOString().split('T')[0]
-    };
-
-    // Step 3.7: Fetch PDFs for this bank
-    sendStatus('preparing', 'Loading attached PDFs...');
-    const pdfs = await PDF.getByBank(idrssd);
-    console.log(`Found ${pdfs.length} PDFs for bank ${idrssd}`);
-
-    // Step 4: Call Claude API for analysis with streaming
-    sendStatus('analyzing', prompts.statusMessages.analyzingTrends);
-
-    const claudeService = new ClaudeService();
-
-    let fullThinking = '';
-    let fullAnalysis = '';
-
-    const result = await claudeService.analyzeBankPerformance(
-      bankInfo,
-      trendsData,
-      peerData,
-      pdfs, // Add PDFs as 4th parameter
-      (event) => {
-        console.log('Streaming event received:', event.type); // Debug log
-        if (event.type === 'status') {
-          sendStatus(event.stage, event.message);
-        } else if (event.type === 'thinking_start') {
-          sendStatus('thinking', 'Claude is thinking...');
-        } else if (event.type === 'thinking_delta') {
-          fullThinking += event.content;
-          sendStatus('thinking_stream', event.message || 'Thinking...', {
-            thinkingChunk: event.content
-          });
-        } else if (event.type === 'text_delta') {
-          fullAnalysis += event.content;
-          sendStatus('text_stream', 'Generating report...', {
-            textChunk: event.content
-          });
-        }
-      }
-    );
-
-    // Step 5: Save report to file
-    sendStatus('saving', 'Saving research report...');
-
-    const timestamp = Date.now();
-    const fileName = `${idrssd}_${timestamp}.json`;
-    const filePath = path.join(RESEARCH_DIR, fileName);
-
-    const reportData = {
-      idrssd,
-      bankName: institution.name,
-      generatedAt: new Date().toISOString(),
-      model: result.metadata.model,
-      analysis: result.analysis.report,
-      thinking: result.analysis.thinking,
-      trendsData,
-      metadata: result.metadata
-    };
-
-    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
-
-    // Step 6: Send completion status with report
-    sendStatus('complete', prompts.statusMessages.complete, {
-      report: reportData,
-      fileName
-    });
-
-    res.end();
-
-  } catch (error) {
-    console.error('Error generating research report:', error);
-    res.write(`data: ${JSON.stringify({
-      stage: 'error',
-      message: `Error: ${error.message}`
-    })}\n\n`);
-    res.end();
-  }
-});
-
-/**
  * GET /api/research/:idrssd/generate-agent
  * Generate a bank research report using agent-based approach
  * The agent adaptively explores data, searches for context, and queries documents
@@ -773,23 +515,30 @@ Use your tools strategically to build a comprehensive understanding. Be thorough
     // Add web search sources from agent
     if (agentResult.stats && agentResult.stats.webSearches && agentResult.stats.webSearches.length > 0) {
       agentResult.stats.webSearches.forEach(search => {
-        if (search.sources && search.sources.length > 0) {
-          search.sources.forEach(url => {
-            const sourceKey = url;
-            if (!sourceMap.has(sourceKey)) {
-              sourceMap.set(sourceKey, sourceIndex);
-              allSources.push({
-                number: sourceIndex,
-                type: `Web Search - ${search.focus || 'General'}`,
-                title: search.query || 'Web search result',
-                url: url,
-                query: search.query,
-                summary: search.summary || null
-              });
-              sourceIndex++;
-            }
-          });
-        }
+        // Use sourceDetails if available (structured data), otherwise fall back to sources array
+        const sourcesToProcess = search.sourceDetails && search.sourceDetails.length > 0
+          ? search.sourceDetails
+          : (search.sources || []).map(url => ({ url, title: url, snippet: null }));
+        
+        sourcesToProcess.forEach(sourceInfo => {
+          const url = typeof sourceInfo === 'string' ? sourceInfo : sourceInfo.url;
+          const title = typeof sourceInfo === 'string' ? sourceInfo : (sourceInfo.title || search.query || 'Web search result');
+          const sourceKey = url;
+          
+          if (!sourceMap.has(sourceKey)) {
+            sourceMap.set(sourceKey, sourceIndex);
+            allSources.push({
+              number: sourceIndex,
+              type: `Web Search - ${search.focus || 'General'}`,
+              title: title,
+              url: url,
+              query: search.query,
+              summary: search.summary || null,
+              snippet: typeof sourceInfo === 'object' ? sourceInfo.snippet : null
+            });
+            sourceIndex++;
+          }
+        });
       });
     }
 
@@ -837,7 +586,7 @@ Use your tools strategically to build a comprehensive understanding. Be thorough
     const sourcesSection = allSources.length > 0 ? `
 # Available Sources for Citation
 
-Use these source numbers in your citations: [1], [2], [3], etc.
+Use these source numbers in your citations: [Source 1], [Source 2], [Source 3], etc. or [1], [2], [3], etc.
 
 ${allSources.map(s => {
   let citation = `**[${s.number}] ${s.type}**`;
@@ -851,7 +600,8 @@ ${allSources.map(s => {
     citation += `: [${s.url}](${s.url})`;
   }
   if (s.date) citation += ` (${new Date(s.date).toLocaleDateString()})`;
-  if (s.query) citation += ` - Search query: "${s.query}"`;
+  if (s.query) citation += ` - Search: "${s.query}"`;
+  if (s.snippet) citation += `\n  *${s.snippet.substring(0, 150)}${s.snippet.length > 150 ? '...' : ''}*`;
   return citation;
 }).join('\n\n')}
 
@@ -967,8 +717,18 @@ Now synthesize these insights into a comprehensive, well-structured research rep
 1. **Executive Summary** - High-level overview of the bank's position and key findings
 2. **Financial Performance Analysis** - Deep dive into trends, with specific metrics and charts
    - **CRITICAL:** Cite call report data using format: [Call Report: Q# YYYY] for each specific metric or data point
-   - Example: "Total assets grew to $15.2B in Q2 2025 [Call Report: Q2 2025], representing 8% YoY growth"
+   - **CRITICAL - Number Labeling:** ALWAYS explicitly label what each number represents. Never list dollar amounts, percentages, or metrics without clear context.
+   - **CORRECT Examples:**
+     * "Total assets grew to $15.2B in Q2 2025 [Call Report: Q2 2025], representing 8% YoY growth"
+     * "Business loans totaling $8.5B [Call Report: Q2 2025] represent 56% of total assets"
+     * "Net interest income of $125M [Call Report: Q2 2025] increased 8% year-over-year"
+     * "The efficiency ratio improved to 58% [Call Report: Q2 2025]"
+   - **INCORRECT Examples (DO NOT USE):**
+     * "$15.2B [Call Report: Q2 2025], representing 8% YoY growth" (missing label - what is $15.2B?)
+     * "$8.5B [Call Report: Q2 2025], representing 56% of total assets" (missing label - what category?)
+     * "$125M [Call Report: Q2 2025]" (missing label - what metric?)
    - When discussing trends over multiple periods: "Net income increased from $45M in Q1 2024 [Call Report: Q1 2024] to $52M in Q2 2025 [Call Report: Q2 2025]"
+   - **Rule:** Every number must be preceded or immediately followed by a clear label (e.g., "Total assets of $X", "Business loans totaling $X", "Efficiency ratio of X%")
 3. **Strategic Position** - Competitive positioning, differentiation, strategic initiatives
    - For strategic initiatives found in documents: Cite as [Source #] where # matches the source number
    - For initiatives from web searches: Cite as [Source #] where # matches the web search source
@@ -1013,19 +773,23 @@ Now synthesize these insights into a comprehensive, well-structured research rep
    ## Sources
    
    **Call Report Data:**
-   - Q1 2021 through Q2 2025 - Federal Financial Institutions Examination Council (FFIEC) Call Reports
+   - Q1 2021 through Q2 2025 - Federal Financial Institutions Examination Council (FFIEC) Call Reports, accessed via regulatory databases
    
    **PDF Documents:**
-   [List all PDF sources with clickable links]
-   - [1] [Title] - [URL]
-   - [2] [Title] - [URL]
+   [List all PDF sources with clickable links - ONLY include sources you actually cited in the report]
+   - [1] [Title](URL) - [Date if available]
+   - [2] [Title](URL) - [Date if available]
    
    **Web Sources:**
-   [List all web sources with clickable links - MUST include actual URLs]
-   - [3] [Title/Query](https://actual-url.com)
-   - [4] [Title/Query](https://actual-url.com)
+   [List all web sources with clickable links - ONLY include sources you actually cited in the report]
+   - [3] [Title](URL) - [Search query if relevant]
+   - [4] [Title](URL) - [Search query if relevant]
    
-   **CRITICAL:** For web sources, use the actual URL from the source. Format as: [Title](URL) or [Query](URL) where URL is the actual clickable link.
+   **CRITICAL:** 
+   - For web sources, use the actual URL from the source. Format as: [Title](URL) where URL is the actual clickable link.
+   - ONLY list sources that you actually cited in the report body using [Source #] or [#] format.
+   - Group sources by type (PDF Documents, Web Sources) for clarity.
+   - Include the search query for web sources when it provides context about what information was found.
 
 **Chart Instructions:**
 Use chart tags where appropriate (use kebab-case for metric names):
@@ -1043,11 +807,19 @@ Write in a professional, analytical tone suitable for investors and executives. 
 
     // Use Claude to synthesize the report
     const Anthropic = require('@anthropic-ai/sdk');
+    const modelResolver = require('../services/modelResolver');
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+    // Get latest model
+    const latestModel = await modelResolver.getLatestSonnetModel();
+
     const synthesisStream = await anthropic.messages.stream({
-      model: 'claude-sonnet-4-20250514',
+      model: latestModel,
       max_tokens: 16000,
+      thinking: {
+        type: 'enabled',
+        budget_tokens: 10000
+      },
       messages: [{
         role: 'user',
         content: synthesisPrompt
@@ -1072,17 +844,42 @@ Write in a professional, analytical tone suitable for investors and executives. 
     const fileName = `${idrssd}_agent_${timestamp}.json`;
     const filePath = path.join(RESEARCH_DIR, fileName);
 
+    // Extract web search sources for tracking
+    const webSearchSources = [];
+    if (agentResult.stats && agentResult.stats.webSearches && agentResult.stats.webSearches.length > 0) {
+      agentResult.stats.webSearches.forEach(search => {
+        const sourcesToProcess = search.sourceDetails && search.sourceDetails.length > 0
+          ? search.sourceDetails
+          : (search.sources || []).map(url => ({ url, title: url, snippet: null }));
+        
+        sourcesToProcess.forEach(sourceInfo => {
+          const url = typeof sourceInfo === 'string' ? sourceInfo : sourceInfo.url;
+          const title = typeof sourceInfo === 'string' ? sourceInfo : (sourceInfo.title || search.query || 'Web search result');
+          
+          webSearchSources.push({
+            url: url,
+            title: title,
+            query: search.query,
+            focus: search.focus || 'General',
+            snippet: typeof sourceInfo === 'object' ? sourceInfo.snippet : null,
+            summary: search.summary || null
+          });
+        });
+      });
+    }
+
     const reportData = {
       idrssd,
       bankName: institution.name,
       generatedAt: new Date().toISOString(),
       method: 'agent-based',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4.5',
       analysis: fullReport,
       agentInsights: agentResult.insights,
       agentStats: agentResult.stats,
       trendsData,
-      sessionId: sessionId || null
+      sessionId: sessionId || null,
+      webSearchSources: webSearchSources // Track web search sources for citation tracking
     };
 
     await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
@@ -1701,309 +1498,6 @@ router.get('/:idrssd/podcast/:filename', async (req, res) => {
     res.status(404).json({ error: 'Podcast file not found' });
   }
 });
-
-/**
- * Generate report with streaming (async function)
- * Updates job tracker AND sends SSE events
- */
-async function generateReportWithStreaming(idrssd, jobId, sendEvent) {
-  try {
-    console.log(`[Job ${jobId}] Starting streaming report generation for ${idrssd}`);
-
-    // Step 1: Fetch bank information
-    jobTracker.updateJob(jobId, {
-      status: 'running',
-      progress: 10,
-      message: 'Fetching bank information...'
-    });
-    sendEvent('status', { progress: 10, message: 'Fetching bank information...' });
-
-    const institution = await Institution.findOne({ idrssd });
-    if (!institution) {
-      throw new Error('Bank not found');
-    }
-
-    // Step 2: Fetch financial data
-    jobTracker.updateJob(jobId, {
-      progress: 20,
-      message: 'Fetching financial statements...'
-    });
-    sendEvent('status', { progress: 20, message: 'Fetching financial statements...' });
-
-    const financialStatements = await FinancialStatement.find({ idrssd })
-      .sort({ reportingPeriod: 1 })
-      .limit(20);
-
-    if (financialStatements.length === 0) {
-      throw new Error('No financial data found for this bank');
-    }
-
-    // Step 3: Prepare trends data
-    jobTracker.updateJob(jobId, {
-      progress: 30,
-      message: 'Preparing trends data...'
-    });
-    sendEvent('status', { progress: 30, message: 'Preparing trends data...' });
-
-    const trendsData = prepareTrendsData(financialStatements);
-    const latestStatement = financialStatements[financialStatements.length - 1];
-
-    // Step 3.5: Fetch peer analysis data
-    const peerAnalysis = latestStatement.peerAnalysis || null;
-    let peerData = null;
-
-    if (peerAnalysis && peerAnalysis.peers && peerAnalysis.peers.peerIds) {
-      const peerIds = peerAnalysis.peers.peerIds;
-      const peerInstitutions = await Institution.find({
-        idrssd: { $in: peerIds }
-      }).select('idrssd name').lean();
-
-      const peerStatements = await FinancialStatement.find({
-        idrssd: { $in: peerIds },
-        reportingPeriod: latestStatement.reportingPeriod
-      }).select('idrssd ratios balanceSheet.assets.totalAssets').lean();
-
-      const peerMap = new Map(peerInstitutions.map(p => [p.idrssd, p.name]));
-
-      peerData = {
-        count: peerAnalysis.peers.count,
-        rankings: peerAnalysis.rankings,
-        peerAverages: peerAnalysis.peerAverages,
-        peerBanks: peerStatements.map(stmt => ({
-          idrssd: stmt.idrssd,
-          name: peerMap.get(stmt.idrssd) || `Bank ${stmt.idrssd}`,
-          totalAssets: stmt.balanceSheet?.assets?.totalAssets || 0,
-          efficiencyRatio: stmt.ratios?.efficiencyRatio,
-          roe: stmt.ratios?.roe,
-          roa: stmt.ratios?.roa,
-          nim: stmt.ratios?.netInterestMargin
-        })).sort((a, b) => b.totalAssets - a.totalAssets)
-      };
-    }
-
-    const bankInfo = {
-      idrssd: institution.idrssd,
-      name: institution.name,
-      city: institution.city,
-      state: institution.state,
-      website: institution.website,
-      totalAssets: latestStatement.balanceSheet.assets.totalAssets,
-      latestPeriod: latestStatement.reportingPeriod.toISOString().split('T')[0]
-    };
-
-    // Step 4: Call Claude API with streaming
-    jobTracker.updateJob(jobId, {
-      progress: 40,
-      message: 'Analyzing with Claude AI...'
-    });
-    sendEvent('status', { progress: 40, message: 'Analyzing with Claude AI...' });
-
-    const claudeService = new ClaudeService();
-
-    const result = await claudeService.analyzeBankPerformance(
-      bankInfo,
-      trendsData,
-      peerData,
-      (event) => {
-        // Stream thinking and text to client
-        console.log('[Streaming] Callback event:', event.type, event);
-        if (event.type === 'thinking_delta') {
-          if (event.content) {
-            sendEvent('thinking', { text: event.content });
-          }
-        } else if (event.type === 'text_delta') {
-          if (event.content) {
-            sendEvent('text', { text: event.content });
-          }
-        } else if (event.type === 'status') {
-          jobTracker.updateJob(jobId, {
-            progress: 40 + (event.progress || 0) * 0.5, // 40-90%
-            message: event.message
-          });
-          sendEvent('status', { progress: 40 + (event.progress || 0) * 0.5, message: event.message });
-        }
-      }
-    );
-
-    // Step 5: Save report
-    jobTracker.updateJob(jobId, {
-      progress: 95,
-      message: 'Saving report...'
-    });
-    sendEvent('status', { progress: 95, message: 'Saving report...' });
-
-    const timestamp = Date.now();
-    const filename = `${idrssd}_${timestamp}.json`;
-    const filePath = path.join(RESEARCH_DIR, filename);
-
-    const reportData = {
-      idrssd: institution.idrssd,
-      bankName: institution.name,
-      generatedAt: new Date().toISOString(),
-      model: result.model,
-      thinking: result.thinking,
-      analysis: result.analysis,
-      trendsData,
-      metadata: result.metadata
-    };
-
-    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
-
-    // Mark job as complete
-    jobTracker.completeJob(jobId, { filename, reportData });
-    sendEvent('status', { progress: 100, message: 'Report complete!' });
-
-    console.log(`[Job ${jobId}] Report generation complete`);
-
-  } catch (error) {
-    console.error(`[Job ${jobId}] Error:`, error);
-    jobTracker.failJob(jobId, error);
-    throw error;
-  }
-}
-
-/**
- * Generate report in background (async function)
- * Updates job tracker with progress
- */
-async function generateReportInBackground(idrssd, jobId) {
-  try {
-    console.log(`[Job ${jobId}] Starting report generation for ${idrssd}`);
-
-    // Step 1: Fetch bank information
-    jobTracker.updateJob(jobId, {
-      status: 'running',
-      progress: 10,
-      message: 'Fetching bank information...'
-    });
-
-    const institution = await Institution.findOne({ idrssd });
-    if (!institution) {
-      throw new Error('Bank not found');
-    }
-
-    // Step 2: Fetch financial data
-    jobTracker.updateJob(jobId, {
-      progress: 20,
-      message: 'Fetching financial statements...'
-    });
-
-    const financialStatements = await FinancialStatement.find({ idrssd })
-      .sort({ reportingPeriod: 1 })
-      .limit(20);
-
-    if (financialStatements.length === 0) {
-      throw new Error('No financial data found for this bank');
-    }
-
-    // Step 3: Prepare trends data
-    jobTracker.updateJob(jobId, {
-      progress: 30,
-      message: 'Preparing trends data...'
-    });
-
-    const trendsData = prepareTrendsData(financialStatements);
-    const latestStatement = financialStatements[financialStatements.length - 1];
-
-    // Step 3.5: Fetch peer analysis data
-    const peerAnalysis = latestStatement.peerAnalysis || null;
-    let peerData = null;
-
-    if (peerAnalysis && peerAnalysis.peers && peerAnalysis.peers.peerIds) {
-      const peerIds = peerAnalysis.peers.peerIds;
-      const peerInstitutions = await Institution.find({
-        idrssd: { $in: peerIds }
-      }).select('idrssd name').lean();
-
-      const peerStatements = await FinancialStatement.find({
-        idrssd: { $in: peerIds },
-        reportingPeriod: latestStatement.reportingPeriod
-      }).select('idrssd ratios balanceSheet.assets.totalAssets').lean();
-
-      const peerMap = new Map(peerInstitutions.map(p => [p.idrssd, p.name]));
-
-      peerData = {
-        count: peerAnalysis.peers.count,
-        rankings: peerAnalysis.rankings,
-        peerAverages: peerAnalysis.peerAverages,
-        peerBanks: peerStatements.map(stmt => ({
-          idrssd: stmt.idrssd,
-          name: peerMap.get(stmt.idrssd) || `Bank ${stmt.idrssd}`,
-          totalAssets: stmt.balanceSheet?.assets?.totalAssets || 0,
-          efficiencyRatio: stmt.ratios?.efficiencyRatio,
-          roe: stmt.ratios?.roe,
-          roa: stmt.ratios?.roa,
-          nim: stmt.ratios?.netInterestMargin
-        })).sort((a, b) => b.totalAssets - a.totalAssets)
-      };
-    }
-
-    const bankInfo = {
-      idrssd: institution.idrssd,
-      name: institution.name,
-      city: institution.city,
-      state: institution.state,
-      website: institution.website,
-      totalAssets: latestStatement.balanceSheet.assets.totalAssets,
-      latestPeriod: latestStatement.reportingPeriod.toISOString().split('T')[0]
-    };
-
-    // Step 4: Call Claude API
-    jobTracker.updateJob(jobId, {
-      progress: 40,
-      message: 'Analyzing with Claude AI...'
-    });
-
-    const claudeService = new ClaudeService();
-
-    const result = await claudeService.analyzeBankPerformance(
-      bankInfo,
-      trendsData,
-      peerData,
-      (event) => {
-        if (event.type === 'status') {
-          jobTracker.updateJob(jobId, { message: event.message });
-        }
-      }
-    );
-
-    // Step 5: Save report
-    jobTracker.updateJob(jobId, {
-      progress: 90,
-      message: 'Saving report...'
-    });
-
-    const timestamp = Date.now();
-    const fileName = `${idrssd}_${timestamp}.json`;
-    const filePath = path.join(RESEARCH_DIR, fileName);
-
-    const reportData = {
-      idrssd,
-      bankName: institution.name,
-      generatedAt: new Date().toISOString(),
-      model: result.metadata.model,
-      analysis: result.analysis.report,
-      thinking: result.analysis.thinking,
-      trendsData,
-      metadata: result.metadata
-    };
-
-    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
-
-    // Step 6: Complete job
-    jobTracker.completeJob(jobId, {
-      fileName,
-      reportData
-    });
-
-    console.log(`[Job ${jobId}] Report generation completed successfully`);
-
-  } catch (error) {
-    console.error(`[Job ${jobId}] Error:`, error);
-    jobTracker.failJob(jobId, error);
-    throw error;
-  }
-}
 
 /**
  * Generate podcast in background (async function)

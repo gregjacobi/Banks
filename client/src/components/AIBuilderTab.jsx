@@ -6,7 +6,6 @@ import {
   Typography,
   Box,
   Button,
-  ButtonGroup,
   LinearProgress,
   Paper,
   Chip,
@@ -35,7 +34,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -163,7 +161,6 @@ function AIBuilderTab({ idrssd, bankName }) {
     podcastProgress,
     podcastStatus,
     startDataGathering,
-    generateComprehensiveReport,
     generateAgentReport,
     generatePodcast,
     cancelJob,
@@ -665,25 +662,18 @@ function AIBuilderTab({ idrssd, bankName }) {
                       Generate comprehensive analysis using call report data, discovered sources, and attached PDFs.
                     </Typography>
                   </Alert>
-                  <ButtonGroup variant="contained" size="large" fullWidth sx={{ mb: 2 }}>
-                    <Button
-                      startIcon={<AutoAwesomeIcon />}
-                      onClick={generateComprehensiveReport}
-                      disabled={reportInProgress}
-                      sx={{ flex: 1 }}
-                    >
-                      Structured Report
-                    </Button>
-                    <Button
-                      startIcon={<PsychologyIcon />}
-                      onClick={generateAgentReport}
-                      disabled={reportInProgress || !totalFound}
-                      sx={{ flex: 1 }}
-                      color="secondary"
-                    >
-                      Agent Mode
-                    </Button>
-                  </ButtonGroup>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<PsychologyIcon />}
+                    onClick={generateAgentReport}
+                    disabled={reportInProgress || !totalFound}
+                    fullWidth
+                    color="secondary"
+                    sx={{ mb: 2 }}
+                  >
+                    Generate Agent Report
+                  </Button>
                   <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                     <strong>Agent Mode:</strong> AI adaptively explores data, queries sources, and builds insights.
                   </Typography>
@@ -788,15 +778,33 @@ function AIBuilderTab({ idrssd, bankName }) {
                 </>
               )}
 
-              {phase2Status === 'completed' && currentReport && (
-                <Alert severity="success">
-                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    Report Generated Successfully
-                  </Typography>
-                  <Typography variant="caption">
-                    Generated {formatRelativeTime(currentReport.generatedAt)} • Model: {currentReport.model || 'Claude Sonnet 4.5'}
-                  </Typography>
-                </Alert>
+              {phase2Status === 'completed' && currentReport && !reportInProgress && (
+                <>
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      Report Generated Successfully
+                    </Typography>
+                    <Typography variant="caption">
+                      Generated {formatRelativeTime(currentReport.generatedAt)} • Model: {currentReport.model || 'Claude Sonnet 4.5'}
+                    </Typography>
+                  </Alert>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: 'text.secondary' }}>
+                      Regenerate Report
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="medium"
+                      startIcon={<PsychologyIcon />}
+                      onClick={generateAgentReport}
+                      disabled={reportInProgress || !totalFound}
+                      fullWidth
+                      color="secondary"
+                    >
+                      Regenerate Agent Report
+                    </Button>
+                  </Box>
+                </>
               )}
             </AccordionDetails>
           </Accordion>
@@ -971,7 +979,7 @@ function AIBuilderTab({ idrssd, bankName }) {
                 </>
               )}
 
-              {phase3Status === 'completed' && currentPodcast && (
+              {phase3Status === 'completed' && currentPodcast && !podcastInProgress && (
                 <>
                   <Alert severity="success" sx={{ mb: 2 }}>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -984,11 +992,93 @@ function AIBuilderTab({ idrssd, bankName }) {
                   </Alert>
                   <audio
                     controls
-                    style={{ width: '100%', borderRadius: '8px' }}
+                    style={{ width: '100%', borderRadius: '8px', mb: 2 }}
                     src={currentPodcast.url}
                   >
                     Your browser does not support the audio element.
                   </audio>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: 'text.secondary' }}>
+                      Regenerate Podcast
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                        Select Podcast Experts:
+                      </Typography>
+                      <FormGroup>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={selectedPodcastExperts.includes('WARREN_VAULT')}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPodcastExperts(prev => [...prev, 'WARREN_VAULT']);
+                                } else {
+                                  setSelectedPodcastExperts(prev => prev.filter(ex => ex !== 'WARREN_VAULT'));
+                                }
+                              }}
+                            />
+                          }
+                          label="Warren Vault (Investor Analyst)"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={selectedPodcastExperts.includes('DR_SOFIA_BANKS')}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPodcastExperts(prev => [...prev, 'DR_SOFIA_BANKS']);
+                                } else {
+                                  setSelectedPodcastExperts(prev => prev.filter(ex => ex !== 'DR_SOFIA_BANKS'));
+                                }
+                              }}
+                            />
+                          }
+                          label="Dr. Sofia Banks (Banking Professor)"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={selectedPodcastExperts.includes('AVA_AGENTIC')}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPodcastExperts(prev => [...prev, 'AVA_AGENTIC']);
+                                } else {
+                                  setSelectedPodcastExperts(prev => prev.filter(ex => ex !== 'AVA_AGENTIC'));
+                                }
+                              }}
+                            />
+                          }
+                          label="Ava Agentic (AI/Tech Expert)"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={selectedPodcastExperts.includes('MAYA_CUSTOMER')}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPodcastExperts(prev => [...prev, 'MAYA_CUSTOMER']);
+                                } else {
+                                  setSelectedPodcastExperts(prev => prev.filter(ex => ex !== 'MAYA_CUSTOMER'));
+                                }
+                              }}
+                            />
+                          }
+                          label="Maya Customer (Customer Experience)"
+                        />
+                      </FormGroup>
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      size="large"
+                      startIcon={<PodcastsIcon />}
+                      onClick={() => generatePodcast(selectedPodcastExperts)}
+                      disabled={podcastInProgress || selectedPodcastExperts.length === 0}
+                      fullWidth
+                    >
+                      Regenerate Podcast
+                    </Button>
+                  </Box>
                 </>
               )}
             </AccordionDetails>

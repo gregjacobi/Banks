@@ -54,6 +54,11 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
    * Parse custom tags from markdown (charts, leader profiles, and research checklist)
    */
   const processMarkdownWithCharts = (text) => {
+    // Convert escaped newlines to actual newlines (handles JSON-escaped content)
+    if (typeof text === 'string') {
+      text = text.replace(/\\n/g, '\n');
+    }
+    
     // First convert plain URLs to markdown links
     text = convertUrlsToLinks(text);
 
@@ -203,14 +208,87 @@ function ReportRenderer({ markdown, trendsData, idrssd }) {
  * MarkdownSection - Renders markdown text with styling and citation support
  */
 function MarkdownSection({ content }) {
+  // Convert escaped newlines to actual newlines if content is a string
+  // This handles JSON-escaped content like "\n\n" -> actual newlines
+  if (typeof content === 'string') {
+    content = content.replace(/\\n/g, '\n');
+  }
+  
   // Custom component to render citations as superscripts
   const CitationText = ({ children }) => {
+    // If children is not a string or array, return as-is (handles React elements)
+    if (typeof children !== 'string' && !Array.isArray(children)) {
+      return children;
+    }
+
     // Handle both string and array children
     let text = '';
     if (typeof children === 'string') {
       text = children;
     } else if (Array.isArray(children)) {
-      // Extract text from array, filtering out React elements
+      // Extract text from array, but preserve React elements
+      // First, check if there are any React elements (non-string, non-null, non-undefined)
+      const hasReactElements = children.some(child => 
+        child !== null && 
+        child !== undefined && 
+        typeof child !== 'string' && 
+        typeof child !== 'number'
+      );
+      
+      // If there are React elements, we need to process differently
+      if (hasReactElements) {
+        // Process each child, handling citations in strings but preserving React elements
+        return (
+          <>
+            {children.map((child, idx) => {
+              if (typeof child === 'string') {
+                // Process citations in string children
+                const parts = [];
+                let lastIndex = 0;
+                const citationRegex = /\[(Call Report: [^\]]+|Source \d+)\]/g;
+                let match;
+
+                while ((match = citationRegex.exec(child)) !== null) {
+                  if (match.index > lastIndex) {
+                    parts.push(child.substring(lastIndex, match.index));
+                  }
+                  const citation = match[1];
+                  const isCallReport = citation.startsWith('Call Report');
+                  parts.push(
+                    <Box
+                      key={`${idx}-${match.index}`}
+                      component="sup"
+                      sx={{
+                        fontSize: '0.7rem',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                        backgroundColor: isCallReport ? 'rgba(25, 118, 210, 0.1)' : 'rgba(211, 47, 47, 0.1)',
+                        color: isCallReport ? '#1976d2' : '#d32f2f',
+                        fontWeight: 600,
+                        marginLeft: '2px',
+                        cursor: 'help'
+                      }}
+                      title={citation}
+                    >
+                      [{citation}]
+                    </Box>
+                  );
+                  lastIndex = match.index + match[0].length;
+                }
+                if (lastIndex < child.length) {
+                  parts.push(child.substring(lastIndex));
+                }
+                return parts.length > 0 ? <React.Fragment key={idx}>{parts}</React.Fragment> : child;
+              } else {
+                // Preserve React elements as-is
+                return <React.Fragment key={idx}>{child}</React.Fragment>;
+              }
+            })}
+          </>
+        );
+      }
+      
+      // If no React elements, just extract strings
       text = children.filter(child => typeof child === 'string').join('');
     } else if (children) {
       text = String(children);
@@ -316,9 +394,19 @@ function MarkdownSection({ content }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <Typography component="p"><CitationText>{children}</CitationText></Typography>,
+          p: ({ children }) => {
+            // Handle empty paragraphs (just whitespace/newlines)
+            const text = typeof children === 'string' ? children : 
+                        Array.isArray(children) ? children.filter(c => typeof c === 'string').join('') : '';
+            if (!text || text.trim() === '') return null;
+            return <Typography component="p"><CitationText>{children}</CitationText></Typography>;
+          },
+          ol: ({ children }) => <ol>{children}</ol>,
+          ul: ({ children }) => <ul>{children}</ul>,
           li: ({ children }) => <li><CitationText>{children}</CitationText></li>,
           td: ({ children }) => <td><CitationText>{children}</CitationText></td>,
+          strong: ({ children }) => <strong>{children}</strong>,
+          em: ({ children }) => <em>{children}</em>,
           a: ({ href, children }) => (
             <Link
               href={href}
@@ -335,7 +423,7 @@ function MarkdownSection({ content }) {
           )
         }}
       >
-        {content}
+        {content || ''}
       </ReactMarkdown>
     </Box>
   );
@@ -1058,7 +1146,7 @@ function IncomeBreakdownChart({ trendsData }) {
       },
       {
         label: 'Non-Interest Income',
-        data: sortedPeriods.map(p => (p.income.nonInterestIncome / 1000).toFixed(0)),
+        data: sortedPeriods.map(p => (p.income.noninterestIncome / 1000).toFixed(0)),
         backgroundColor: '#82ca9d'
       }
     ]

@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const modelResolver = require('./modelResolver');
 
 /**
  * UBPR Analysis Agent
@@ -10,7 +11,18 @@ class UBPRAnalysisAgent {
       apiKey: process.env.ANTHROPIC_API_KEY,
       timeout: 120000 // 2 minutes
     });
-    this.model = 'claude-sonnet-4-20250514';
+    this.model = modelResolver.getModelSync();
+    this.initializeModel();
+  }
+
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestSonnetModel();
+      this.model = latestModel;
+      console.log(`UBPRAnalysisAgent initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+    }
   }
 
   /**
@@ -31,7 +43,11 @@ class UBPRAnalysisAgent {
     try {
       const response = await this.client.messages.create({
         model: this.model,
-        max_tokens: 4096,
+        max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
         messages: [{
           role: 'user',
           content: prompt

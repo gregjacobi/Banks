@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const Source = require('../models/Source');
 const AgentMemoryService = require('./agentMemoryService');
+const modelResolver = require('./modelResolver');
 
 /**
  * AgentOrchestrator
@@ -17,7 +18,12 @@ class AgentOrchestrator {
 
     this.maxIterations = config.maxIterations || 15;
     this.maxTimeout = config.maxTimeout || 600000; // 10 minutes
-    this.model = config.model || 'claude-sonnet-4-20250514';
+    this.model = config.model || modelResolver.getModelSync();
+    
+    // Initialize model asynchronously if not provided in config
+    if (!config.model) {
+      this.initializeModel();
+    }
 
     // Agent state
     this.state = {
@@ -41,6 +47,16 @@ class AgentOrchestrator {
 
     // Progress callback
     this.onProgress = config.onProgress || (() => {});
+  }
+
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestSonnetModel();
+      this.model = latestModel;
+      console.log(`AgentOrchestrator initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+    }
   }
 
   /**
@@ -307,7 +323,11 @@ class AgentOrchestrator {
     // Use Claude's web search capability
     const searchMessage = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 4000,
+      max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+      thinking: {
+        type: 'enabled',
+        budget_tokens: 10000
+      },
       system: `You are a financial research assistant. Search for information about ${bankInfo.name} (${bankInfo.city}, ${bankInfo.state}).`,
       messages: [{
         role: 'user',
@@ -323,7 +343,8 @@ class AgentOrchestrator {
       query: query,
       focus: focus,
       results: [],
-      sources: []
+      sources: [],
+      sourceDetails: [] // Structured source information
     };
 
     // Extract search results from the response
@@ -331,16 +352,86 @@ class AgentOrchestrator {
       for (const block of searchMessage.content) {
         if (block.type === 'text') {
           searchResults.summary = block.text;
+          
+          // Try to extract structured source information from the summary text
+          // Look for patterns like "Title - URL" or markdown links [Title](URL)
+          const markdownLinkRegex = /\[([^\]]+)\]\(([^\)]+)\)/g;
+          const titleUrlRegex = /([^-\n]+)\s*-\s*(https?:\/\/[^\s\n]+)/g;
+          
+          let match;
+          // Extract markdown links
+          while ((match = markdownLinkRegex.exec(block.text)) !== null) {
+            const title = match[1].trim();
+            const url = match[2].trim();
+            if (url.startsWith('http')) {
+              searchResults.sources.push(url);
+              searchResults.sourceDetails.push({
+                url: url,
+                title: title,
+                snippet: null
+              });
+            }
+          }
+          
+          // Extract title - URL patterns
+          while ((match = titleUrlRegex.exec(block.text)) !== null) {
+            const title = match[1].trim();
+            const url = match[2].trim();
+            if (url.startsWith('http') && !searchResults.sources.includes(url)) {
+              searchResults.sources.push(url);
+              searchResults.sourceDetails.push({
+                url: url,
+                title: title,
+                snippet: null
+              });
+            }
+          }
         } else if (block.type === 'tool_result' && block.content) {
           // Extract URLs from tool results
           try {
             const urls = block.content.match(/https?:\/\/[^\s\)]+/g) || [];
-            searchResults.sources.push(...urls);
+            urls.forEach(url => {
+              if (!searchResults.sources.includes(url)) {
+                searchResults.sources.push(url);
+                // Try to extract title from surrounding context
+                const urlIndex = block.content.indexOf(url);
+                const beforeUrl = block.content.substring(Math.max(0, urlIndex - 100), urlIndex);
+                const afterUrl = block.content.substring(urlIndex + url.length, urlIndex + url.length + 200);
+                
+                // Try to find a title (text before the URL, or in quotes)
+                let title = null;
+                const titleMatch = beforeUrl.match(/"([^"]+)"/) || beforeUrl.match(/'([^']+)'/);
+                if (titleMatch) {
+                  title = titleMatch[1];
+                } else {
+                  // Use the last sentence or phrase before the URL
+                  const sentences = beforeUrl.split(/[.!?]\s+/);
+                  if (sentences.length > 0) {
+                    title = sentences[sentences.length - 1].trim().substring(0, 100);
+                  }
+                }
+                
+                searchResults.sourceDetails.push({
+                  url: url,
+                  title: title || url, // Fallback to URL if no title found
+                  snippet: afterUrl.substring(0, 200).trim() || null
+                });
+              }
+            });
           } catch (e) {
             console.error('Error extracting URLs:', e);
           }
         }
       }
+    }
+    
+    // If we have sources but no details, create details from URLs
+    if (searchResults.sources.length > 0 && searchResults.sourceDetails.length === 0) {
+      searchResults.sourceDetails = searchResults.sources.map(url => ({
+        url: url,
+        title: url, // Will be improved later if possible
+        snippet: null
+      }));
     }
 
     this.state.webSearches.push(searchResults);
@@ -430,7 +521,11 @@ class AgentOrchestrator {
           // Use Claude to extract relevant content from PDF
           const pdfQueryMessage = await this.anthropic.messages.create({
             model: this.model,
-            max_tokens: 4000,
+            max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+            thinking: {
+              type: 'enabled',
+              budget_tokens: 10000
+            },
             messages: [{
               role: 'user',
               content: [
@@ -495,7 +590,11 @@ class AgentOrchestrator {
     // Query using Claude with combined context
     const queryMessage = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 2000,
+      max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+      thinking: {
+        type: 'enabled',
+        budget_tokens: 10000
+      },
       messages: [{
         role: 'user',
         content: `Based on the following source documents (including PDFs), answer this question:\n\n${question}\n\n---\n\n${sourceContext}\n\nProvide a detailed answer with specific citations to the sources (reference by Source number).`
@@ -688,7 +787,11 @@ class AgentOrchestrator {
       // Call Claude with tools
       const response = await this.anthropic.messages.create({
         model: this.model,
-        max_tokens: 8000,
+        max_tokens: 12000,  // Must be greater than budget_tokens (10000)
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
         tools: this.getTools(),
         messages: messages
       });

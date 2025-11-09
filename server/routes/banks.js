@@ -166,6 +166,53 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/banks/available-periods
+ * Get available reporting periods for selected banks (intersection of all banks' periods)
+ * Query params: idrssds (comma-separated list of bank IDs)
+ */
+router.get('/available-periods', async (req, res) => {
+  try {
+    const { idrssds } = req.query;
+    
+    if (!idrssds) {
+      return res.status(400).json({ error: 'idrssds parameter is required' });
+    }
+
+    const idrssdArray = idrssds.split(',').map(id => id.trim());
+    
+    // Get periods for each bank
+    const periodPromises = idrssdArray.map(idrssd =>
+      FinancialStatement.distinct('reportingPeriod', { idrssd })
+    );
+    
+    const periodArrays = await Promise.all(periodPromises);
+    
+    // Find intersection of all periods (periods that exist for all selected banks)
+    let commonPeriods = periodArrays[0] || [];
+    for (let i = 1; i < periodArrays.length; i++) {
+      const periodSet = new Set(periodArrays[i].map(p => p.getTime()));
+      commonPeriods = commonPeriods.filter(p => periodSet.has(p.getTime()));
+    }
+    
+    // Sort by date descending (most recent first)
+    commonPeriods.sort((a, b) => b - a);
+    
+    // Convert to ISO date strings
+    const periodStrings = commonPeriods.map(p => p.toISOString().split('T')[0]);
+    
+    res.json({
+      periods: periodStrings,
+      count: periodStrings.length,
+      banks: idrssdArray.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching available periods:', error);
+    res.status(500).json({ error: 'Failed to fetch available periods' });
+  }
+});
+
+/**
  * GET /api/banks/:idrssd
  * Get detailed information for a specific bank
  */

@@ -714,90 +714,6 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
   };
 
   /**
-   * Generate comprehensive report using PDFs + web search + extended thinking
-   * This uses the original comprehensive endpoint with all features
-   */
-  const generateComprehensiveReport = async () => {
-    try {
-      setError(null);
-      setReportInProgress(true);
-      setReportProgress(0);
-      setCurrentPhase('analysis');
-      setStreamingText('');
-      setStreamingThinking('');
-
-      // Start SSE connection for comprehensive report generation
-      // This endpoint automatically loads PDFs from the database
-      const eventSource = new EventSource(
-        `/api/research/${idrssd}/generate`
-      );
-
-      let reportCompleted = false;
-
-      // Status updates
-      eventSource.addEventListener('message', (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          console.log('SSE message:', data);
-
-          // Update progress based on stage
-          if (data.stage === 'init') {
-            setReportProgress(5);
-          } else if (data.stage === 'fetching') {
-            setReportProgress(10);
-          } else if (data.stage === 'preparing') {
-            setReportProgress(15);
-          } else if (data.stage === 'analyzing') {
-            setCurrentPhase('analysis');
-            setReportProgress(20);
-          } else if (data.stage === 'thinking') {
-            setReportProgress(30);
-          } else if (data.stage === 'thinking_stream' && data.thinkingChunk) {
-            setStreamingThinking(prev => prev + data.thinkingChunk);
-          } else if (data.stage === 'text_stream' && data.textChunk) {
-            setStreamingText(prev => prev + data.textChunk);
-            setCurrentPhase('synthesis');
-            setReportProgress(Math.min(90, reportProgress + 1));
-          } else if (data.stage === 'saving') {
-            setReportProgress(95);
-          } else if (data.stage === 'complete') {
-            console.log('Report generation complete');
-            reportCompleted = true;
-            setReportInProgress(false);
-            setReportProgress(100);
-            setStreamingText('');
-            setStreamingThinking('');
-            loadReports();
-            eventSource.close();
-          } else if (data.stage === 'error') {
-            console.error('Report generation error:', data.message);
-            if (!reportCompleted) {
-              setError(data.message || 'Report generation failed');
-              setReportInProgress(false);
-            }
-            eventSource.close();
-          }
-        } catch (parseError) {
-          console.error('Error parsing SSE message:', parseError);
-        }
-      });
-
-      eventSource.onerror = (e) => {
-        console.log('EventSource connection closed or error');
-        if (!reportCompleted) {
-          setReportInProgress(false);
-        }
-        eventSource.close();
-      };
-
-    } catch (err) {
-      console.error('Error generating comprehensive report:', err);
-      setError('Failed to generate report');
-      setReportInProgress(false);
-    }
-  };
-
-  /**
    * Generate report using agent-based approach
    * The agent adaptively explores data and queries sources
    */
@@ -1034,7 +950,6 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
     ignoreSource,
     findBetterSource,
     generateReportFromApprovedSources,
-    generateComprehensiveReport,
     generateAgentReport,
     generatePodcast,
     cancelJob,
