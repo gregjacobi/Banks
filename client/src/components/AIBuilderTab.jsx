@@ -990,13 +990,15 @@ function AIBuilderTab({ idrssd, bankName }) {
                       {currentPodcast.duration && ` • ~${currentPodcast.duration} minutes`}
                     </Typography>
                   </Alert>
-                  <audio
-                    controls
-                    style={{ width: '100%', borderRadius: '8px', mb: 2 }}
-                    src={currentPodcast.url}
-                  >
-                    Your browser does not support the audio element.
-                  </audio>
+                  <Box sx={{ mb: 2 }}>
+                    <audio
+                      controls
+                      style={{ width: '100%', borderRadius: '8px' }}
+                      src={currentPodcast.url}
+                    >
+                      Your browser does not support the audio element.
+                    </audio>
+                  </Box>
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: 'text.secondary' }}>
                       Regenerate Podcast
