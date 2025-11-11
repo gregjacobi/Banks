@@ -2,6 +2,12 @@
 
 This guide will help you deploy the Bank Explorer application to Render.
 
+## Quick Start
+
+**For complete deployment with data import**: See [RENDER_DATA_IMPORT.md](./RENDER_DATA_IMPORT.md) for step-by-step instructions including importing FFIEC Call Report data.
+
+This guide covers basic deployment only. The app will work without pre-loaded data (uses on-demand API fetching), but performance is better with pre-loaded data.
+
 ## Prerequisites
 
 1. A GitHub account with this repository

@@ -12,7 +12,12 @@
     "install-all": "npm install && cd client && npm install",
     "calc-leverage": "node server/scripts/calculateOperatingLeverage.js",
     "calc-peers": "node server/scripts/calculatePeerAnalysis.js",
-    "calc-all": "npm run calc-leverage && npm run calc-peers"
+    "calc-all": "npm run calc-leverage && npm run calc-peers",
+    "download-data": "node scripts/downloadCallReports.js",
+    "download-recent": "node scripts/downloadCallReports.js 2024-Q3 2025-Q2",
+    "download-all": "node scripts/downloadCallReports.js 2023-Q1 2025-Q2",
+    "import-data": "node scripts/importAllQuarters.js",
+    "setup-data": "npm run download-all && npm run import-data"
   },
   "keywords": [
     "banking",
