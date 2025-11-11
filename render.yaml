@@ -1,0 +1,18 @@
+services:
+  # Backend + Frontend service
+  - type: web
+    name: bank-explorer
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && cd client && npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
