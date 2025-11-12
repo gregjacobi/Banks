@@ -55,6 +55,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Serve static files from React app in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '..', 'client', 'build')));
+
+  // Handle React routing, return all requests to React app
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'client', 'build', 'index.html'));
+  });
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

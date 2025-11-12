@@ -10,22 +10,87 @@ const streamPipeline = promisify(pipeline);
 
 /**
  * Download and extract Call Report data from FFIEC
- * Downloads quarterly data from 2020 Q1 to present
- * Usage: node scripts/downloadCallReports.js
+ * Usage:
+ *   node scripts/downloadCallReports.js                    # Downloads from 2020-Q1 to present
+ *   node scripts/downloadCallReports.js 2023-01-01         # Downloads from 2023-Q1 to present
+ *   node scripts/downloadCallReports.js 2023-01-01 2024-12-31  # Downloads from 2023-Q1 to 2024-Q4
+ *
+ * Date format: YYYY-MM-DD or YYYY-Q1, YYYY-Q2, YYYY-Q3, YYYY-Q4
  */
 
-// Generate quarters from 2020 Q1 to present
-function generateQuarters() {
-  const quarters = [];
-  const startYear = 2020;
-  const currentDate = new Date();
-  const currentYear = currentDate.getFullYear();
-  const currentMonth = currentDate.getMonth() + 1;
-  const currentQuarter = Math.ceil(currentMonth / 3);
+/**
+ * Parse date string into year and quarter
+ * Supports formats:
+ *   - YYYY-MM-DD (e.g., "2023-03-15" -> 2023 Q1)
+ *   - YYYY-QN (e.g., "2023-Q1" -> 2023 Q1)
+ */
+function parseDate(dateStr) {
+  if (!dateStr) return null;
 
-  for (let year = startYear; year <= currentYear; year++) {
-    const maxQuarter = (year === currentYear) ? currentQuarter : 4;
-    for (let quarter = 1; quarter <= maxQuarter; quarter++) {
+  // Handle YYYY-QN format
+  const quarterMatch = dateStr.match(/^(\d{4})-Q([1-4])$/i);
+  if (quarterMatch) {
+    return {
+      year: parseInt(quarterMatch[1]),
+      quarter: parseInt(quarterMatch[2])
+    };
+  }
+
+  // Handle YYYY-MM-DD format
+  const dateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateMatch) {
+    const year = parseInt(dateMatch[1]);
+    const month = parseInt(dateMatch[2]);
+    const quarter = Math.ceil(month / 3);
+    return { year, quarter };
+  }
+
+  throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD or YYYY-Q1 format`);
+}
+
+/**
+ * Generate quarters between start and end dates
+ * @param {string} startDateStr - Start date (YYYY-MM-DD or YYYY-QN)
+ * @param {string} endDateStr - End date (YYYY-MM-DD or YYYY-QN)
+ */
+function generateQuarters(startDateStr = null, endDateStr = null) {
+  const quarters = [];
+
+  // Parse start date or default to 2020 Q1
+  let startYear, startQuarter;
+  if (startDateStr) {
+    const parsed = parseDate(startDateStr);
+    startYear = parsed.year;
+    startQuarter = parsed.quarter;
+  } else {
+    startYear = 2020;
+    startQuarter = 1;
+  }
+
+  // Parse end date or default to current quarter
+  let endYear, endQuarter;
+  if (endDateStr) {
+    const parsed = parseDate(endDateStr);
+    endYear = parsed.year;
+    endQuarter = parsed.quarter;
+  } else {
+    const currentDate = new Date();
+    endYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1;
+    endQuarter = Math.ceil(currentMonth / 3);
+  }
+
+  // Validate date range
+  if (startYear > endYear || (startYear === endYear && startQuarter > endQuarter)) {
+    throw new Error('Start date must be before or equal to end date');
+  }
+
+  // Generate quarters in range
+  for (let year = startYear; year <= endYear; year++) {
+    const firstQuarter = (year === startYear) ? startQuarter : 1;
+    const lastQuarter = (year === endYear) ? endQuarter : 4;
+
+    for (let quarter = firstQuarter; quarter <= lastQuarter; quarter++) {
       const month = quarter * 3;
       const lastDay = new Date(year, month, 0).getDate();
       const dateStr = `${month.toString().padStart(2, '0')}${lastDay}${year}`;
@@ -37,6 +102,7 @@ function generateQuarters() {
       });
     }
   }
+
   return quarters;
 }
 
@@ -87,7 +153,7 @@ async function extractZip(zipPath, extractPath) {
   }
 }
 
-async function downloadQuarterlyData() {
+async function downloadQuarterlyData(startDate = null, endDate = null) {
   const dataDir = path.join(__dirname, '..', 'data');
 
   // Ensure data directory exists
@@ -95,7 +161,13 @@ async function downloadQuarterlyData() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  const quarters = generateQuarters();
+  const quarters = generateQuarters(startDate, endDate);
+
+  if (quarters.length === 0) {
+    console.log('❌ No quarters to download for the specified date range.');
+    return;
+  }
+
   console.log(`\n📅 Downloading ${quarters.length} quarters of data from ${quarters[0].label} to ${quarters[quarters.length-1].label}...\n`);
 
   for (const quarter of quarters) {
@@ -137,13 +209,49 @@ async function downloadQuarterlyData() {
 
 // Run download
 if (require.main === module) {
-  downloadQuarterlyData()
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  const startDate = args[0] || null;
+  const endDate = args[1] || null;
+
+  // Display usage if help requested
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage:
+  node scripts/downloadCallReports.js [START_DATE] [END_DATE]
+
+Arguments:
+  START_DATE  Optional. Start date in YYYY-MM-DD or YYYY-Q1 format. Defaults to 2020-Q1.
+  END_DATE    Optional. End date in YYYY-MM-DD or YYYY-Q1 format. Defaults to current quarter.
+
+Examples:
+  node scripts/downloadCallReports.js                      # Download from 2020-Q1 to present
+  node scripts/downloadCallReports.js 2023-Q1              # Download from 2023-Q1 to present
+  node scripts/downloadCallReports.js 2023-01-01           # Download from 2023-Q1 to present
+  node scripts/downloadCallReports.js 2023-Q1 2024-Q4      # Download from 2023-Q1 to 2024-Q4
+  node scripts/downloadCallReports.js 2023-01-01 2024-12-31  # Download from 2023-Q1 to 2024-Q4
+
+Date Formats:
+  YYYY-MM-DD  Calendar date (e.g., 2023-03-15 means Q1 2023)
+  YYYY-QN     Quarter format (e.g., 2023-Q1, 2024-Q4)
+`);
+    process.exit(0);
+  }
+
+  // Display date range
+  if (startDate || endDate) {
+    console.log(`\n📅 Date Range:`);
+    if (startDate) console.log(`   Start: ${startDate}`);
+    if (endDate) console.log(`   End: ${endDate}`);
+  }
+
+  downloadQuarterlyData(startDate, endDate)
     .then(() => {
       console.log('🎉 All quarterly data downloaded successfully!');
       process.exit(0);
     })
     .catch(error => {
-      console.error('💥 Download failed:', error);
+      console.error('💥 Download failed:', error.message);
       process.exit(1);
     });
 }
