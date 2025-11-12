@@ -20,6 +20,7 @@ import {
   Tab
 } from '@mui/material';
 import MultiBankUBPRValidation from './MultiBankUBPRValidation';
+import FFIECUploadTab from './FFIECUploadTab';
 
 /**
  * Bank Search Component
@@ -113,6 +114,7 @@ function BankSearch() {
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Tab label="Bank List" />
           <Tab label="UBPR Validation" />
+          <Tab label="FFIEC Upload" />
         </Tabs>
       </Box>
 
@@ -269,6 +271,11 @@ function BankSearch() {
       {/* UBPR Validation Tab */}
       {activeTab === 1 && (
         <MultiBankUBPRValidation banks={topBanks} />
+      )}
+
+      {/* FFIEC Upload Tab */}
+      {activeTab === 2 && (
+        <FFIECUploadTab />
       )}
     </Box>
   );
