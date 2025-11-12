@@ -36,9 +36,11 @@ mongoose.connect(MONGODB_URI)
 const banksRouter = require('./routes/banks');
 const researchRouter = require('./routes/research');
 const ubprRouter = require('./routes/ubpr');
+const ffiecRouter = require('./routes/ffiec');
 app.use('/api/banks', banksRouter);
 app.use('/api/research', researchRouter);
 app.use('/api/ubpr', ubprRouter);
+app.use('/api/ffiec', ffiecRouter);
 
 app.get('/api/hello', (req, res) => {
   res.json({

@@ -31,6 +31,7 @@
     "@anthropic-ai/sdk": "^0.67.0",
     "@elevenlabs/elevenlabs-js": "^2.19.0",
     "@mozilla/readability": "^0.6.0",
+    "adm-zip": "^0.5.16",
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
