@@ -1,0 +1,62 @@
+{
+  "name": "bank-explorer",
+  "version": "1.0.0",
+  "description": "Financial statement analysis app for banks and credit unions",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server/index.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "install-all": "npm install && cd client && npm install",
+    "calc-leverage": "node server/scripts/calculateOperatingLeverage.js",
+    "calc-peers": "node server/scripts/calculatePeerAnalysis.js",
+    "calc-all": "npm run calc-leverage && npm run calc-peers",
+    "download-data": "node scripts/downloadCallReports.js",
+    "download-recent": "node scripts/downloadCallReports.js 2024-Q3 2025-Q2",
+    "download-all": "node scripts/downloadCallReports.js 2023-Q1 2025-Q2",
+    "import-data": "node scripts/importAllQuarters.js",
+    "reimport-data": "node scripts/reimportAllZips.js",
+    "setup-data": "npm run download-all && npm run import-data"
+  },
+  "keywords": [
+    "banking",
+    "financial-statements",
+    "react",
+    "mongodb"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.67.0",
+    "@elevenlabs/elevenlabs-js": "^2.19.0",
+    "@langchain/community": "^1.0.2",
+    "@langchain/core": "^1.0.4",
+    "@langchain/textsplitters": "^1.0.0",
+    "@mozilla/readability": "^0.6.0",
+    "adm-zip": "^0.5.16",
+    "axios": "^1.12.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "canvas": "^3.2.0",
+    "chart.js": "^4.5.1",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "googleapis": "^166.0.0",
+    "jsdom": "^27.0.1",
+    "marked": "^17.0.0",
+    "mongoose": "^8.0.3",
+    "multer": "^2.0.2",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "puppeteer": "^24.30.0",
+    "recharts": "^3.5.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.2"
+  }
+}

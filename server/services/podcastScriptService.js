@@ -1,0 +1,198 @@
+const Anthropic = require('@anthropic-ai/sdk');
+const prompts = require('../prompts/podcastGeneration');
+const modelResolver = require('./modelResolver');
+
+/**
+ * Service for generating podcast scripts using Claude
+ */
+class PodcastScriptService {
+  constructor() {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
+      console.error('ERROR: ANTHROPIC_API_KEY is not set in environment variables');
+    }
+
+    this.client = new Anthropic({
+      apiKey: apiKey
+    });
+    this.model = modelResolver.getModelSync();
+    this.initializeModel();
+  }
+
+  async initializeModel() {
+    try {
+      const latestModel = await modelResolver.getLatestKitModel();
+      this.model = latestModel;
+      console.log(`PodcastScriptService initialized with model: ${this.model}`);
+    } catch (error) {
+      console.error('Error initializing model:', error.message);
+    }
+  }
+
+  /**
+   * Generate podcast script from bank analysis report
+   * @param {string} bankName - Name of the bank
+   * @param {string} reportAnalysis - Full analysis text from Claude
+   * @param {Array<string>} selectedExperts - Array of expert IDs to include
+   * @param {Object} trendsData - Financial trends data
+   * @param {Function} streamCallback - Optional callback for streaming
+   * @param {Array} agentInsights - Optional agent research insights (for agent-based reports)
+   * @param {Object} agentStats - Optional agent research stats (for agent-based reports)
+   * @param {Array} groundingChunks - Optional RAG chunks for expert knowledge grounding
+   * @returns {Promise<Object>} Script with segments array
+   */
+  async generateScript(bankName, reportAnalysis, selectedExperts, trendsData, streamCallback = null, agentInsights = null, agentStats = null, groundingChunks = []) {
+    try {
+      console.log(`Generating podcast script for ${bankName} with experts:`, selectedExperts);
+
+      // Build the prompt
+      const prompt = selectedExperts.length > 0
+        ? prompts.generatePodcastScript(bankName, reportAnalysis, selectedExperts, trendsData, agentInsights, agentStats, groundingChunks)
+        : prompts.generateSoloScript(bankName, reportAnalysis, agentInsights, agentStats, groundingChunks);
+
+      if (streamCallback) {
+        streamCallback({
+          stage: 'generating_script',
+          message: 'Bankskie is preparing the show...'
+        });
+      }
+
+      // Call Claude API
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 16000,
+        thinking: {
+          type: 'enabled',
+          budget_tokens: 10000
+        },
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        system: prompts.systemPrompt
+      });
+
+      // Extract text from response
+      const scriptText = response.content
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('\n');
+
+      console.log('Script generated, length:', scriptText.length);
+
+      // Parse script into segments
+      const segments = this._parseScript(scriptText);
+
+      console.log(`Parsed ${segments.length} segments from script`);
+
+      // Validate segments - fail fast if parsing produced nothing
+      if (segments.length === 0) {
+        console.error('❌ Script parsing failed - no segments extracted');
+        console.error('Expected format: [SPEAKER_ID]: Dialog text');
+        console.error('First 500 chars of script:', scriptText.substring(0, 500));
+        throw new Error(
+          'Script parsing failed: No dialogue segments found. ' +
+          'Claude may have generated the script in an unexpected format. ' +
+          'Please try regenerating the podcast.'
+        );
+      }
+
+      return {
+        success: true,
+        script: {
+          fullText: scriptText,
+          segments,
+          bankName,
+          experts: selectedExperts,
+          metadata: {
+            model: this.model,
+            generatedAt: new Date().toISOString(),
+            inputTokens: response.usage.input_tokens,
+            outputTokens: response.usage.output_tokens
+          }
+        }
+      };
+
+    } catch (error) {
+      console.error('Error generating podcast script:', error);
+      throw new Error(`Script generation error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Parse script text into segments for TTS
+   * Format: [SPEAKER_ID]: Dialog text
+   * @param {string} scriptText - Full script text
+   * @returns {Array} Array of {speaker, text} objects
+   */
+  _parseScript(scriptText) {
+    const segments = [];
+    const lines = scriptText.split('\n');
+
+    // Regex to match [SPEAKER_ID]: text
+    const speakerPattern = /^\[([A-Z_]+)\]:\s*(.+)$/;
+
+    for (const line of lines) {
+      const match = line.match(speakerPattern);
+      if (match) {
+        const speaker = match[1];
+        const text = match[2].trim();
+
+        // Only add if text is not empty
+        if (text.length > 0) {
+          segments.push({
+            speaker,
+            text
+          });
+        }
+      }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Estimate podcast duration based on word count
+   * Average speaking rate: ~150 words per minute
+   * @param {string} scriptText - Full script text
+   * @returns {number} Estimated duration in minutes
+   */
+  estimateDuration(scriptText) {
+    const wordCount = scriptText.split(/\s+/).length;
+    const durationMinutes = wordCount / 150;
+    return Math.round(durationMinutes * 10) / 10; // Round to 1 decimal
+  }
+
+  /**
+   * Get statistics about the script
+   * @param {Array} segments - Parsed script segments
+   * @returns {Object} Statistics
+   */
+  getScriptStats(segments) {
+    const stats = {
+      totalSegments: segments.length,
+      speakerCounts: {},
+      averageSegmentLength: 0
+    };
+
+    let totalLength = 0;
+
+    for (const segment of segments) {
+      // Count by speaker
+      if (!stats.speakerCounts[segment.speaker]) {
+        stats.speakerCounts[segment.speaker] = 0;
+      }
+      stats.speakerCounts[segment.speaker]++;
+
+      // Track length
+      totalLength += segment.text.length;
+    }
+
+    stats.averageSegmentLength = Math.round(totalLength / segments.length);
+
+    return stats;
+  }
+}
+
+module.exports = PodcastScriptService;
