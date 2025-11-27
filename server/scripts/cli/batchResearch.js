@@ -34,10 +34,22 @@
  *   --list, -l          List banks and their current research phase status
  */
 
+const path = require('path');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const logger = require('../../utils/logger');
-require('dotenv').config();
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '..', '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bankexplorer';
 const API_BASE = 'http://localhost:5001/api';

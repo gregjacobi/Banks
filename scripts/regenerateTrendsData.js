@@ -1,10 +1,11 @@
 /**
  * Script to regenerate trendsData for existing research reports
  * This updates only the trendsData field without regenerating the full report
- * 
+ *
  * Usage:
- *   node scripts/regenerateTrendsData.js [idrssd]
- * 
+ *   node scripts/regenerateTrendsData.js [idrssd]              # Development
+ *   node scripts/regenerateTrendsData.js --production [idrssd] # Production
+ *
  * If idrssd is provided, only updates reports for that bank
  * If not provided, updates all reports
  */
@@ -12,7 +13,18 @@
 const fs = require('fs').promises;
 const path = require('path');
 const mongoose = require('mongoose');
-require('dotenv').config();
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 const FinancialStatement = require('../server/models/FinancialStatement');
 

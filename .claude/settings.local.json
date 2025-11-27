@@ -46,7 +46,18 @@
       "WebFetch(domain:cdr.ffiec.gov)",
       "Bash(python3:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(heroku --version:*)",
+      "Bash(heroku auth:whoami:*)",
+      "Bash(heroku create:*)",
+      "Bash(heroku config:set:*)",
+      "Bash(source:*)",
+      "Bash(heroku logs:*)",
+      "Bash(heroku restart:*)"
     ],
     "deny": [],
     "ask": []

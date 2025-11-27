@@ -1,7 +1,19 @@
-require('dotenv').config();
+const path = require('path');
 const mongoose = require('mongoose');
 const Institution = require('../models/Institution');
 const FinancialStatement = require('../models/FinancialStatement');
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 /**
  * Calculate peer analysis for all banks

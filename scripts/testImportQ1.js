@@ -1,9 +1,20 @@
-require('dotenv').config();
 const path = require('path');
 const mongoose = require('mongoose');
 const CallReportParser = require('../server/utils/callReportParser');
 const Institution = require('../server/models/Institution');
 const FinancialStatement = require('../server/models/FinancialStatement');
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 async function testImportQ1() {
   try {

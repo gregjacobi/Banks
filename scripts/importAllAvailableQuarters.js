@@ -1,8 +1,19 @@
-require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const ffiecImportService = require('../server/services/ffiecImportService');
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 /**
  * Import all available quarters from extracted data directories

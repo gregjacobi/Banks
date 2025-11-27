@@ -1,6 +1,18 @@
-require('dotenv').config();
+const path = require('path');
 const mongoose = require('mongoose');
 const FinancialStatement = require('../models/FinancialStatement');
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 /**
  * Calculate operating leverage (quarter-over-quarter) for all banks

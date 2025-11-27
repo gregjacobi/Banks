@@ -2,7 +2,18 @@ const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const ffiecImportService = require('../server/services/ffiecImportService');
-require('dotenv').config();
+
+// Check for --production flag
+const isProduction = process.argv.includes('--production');
+
+// Load appropriate .env file
+if (isProduction) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env.production') });
+  console.log('🚀 Running in PRODUCTION mode');
+} else {
+  require('dotenv').config();
+  console.log('🔧 Running in DEVELOPMENT mode');
+}
 
 /**
  * Import all quarters of Call Report data into MongoDB
@@ -13,12 +24,15 @@ require('dotenv').config();
  * - Loan categorization (Consumer vs Business)
  * - Validation totals
  *
- * Usage: node scripts/importAllQuarters.js
+ * Usage:
+ *   node scripts/importAllQuarters.js              # Development (local DB)
+ *   node scripts/importAllQuarters.js --production # Production (Atlas DB)
  */
 async function importAllQuarters() {
   try {
     // Connect to MongoDB
     const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/bankexplorer';
+    console.log(`📊 Connecting to: ${mongoUri.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')}`);
     await mongoose.connect(mongoUri);
     console.log('✓ Connected to MongoDB');
 
