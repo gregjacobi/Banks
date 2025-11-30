@@ -149,7 +149,7 @@ async function downloadAndUploadToRAG(source, idrssd) {
                   source.url.toLowerCase().includes('.pdf?') ||
                   source.url.toLowerCase().includes('/pdf/');
 
-    let content, contentType, fileSize, filePath;
+    let content, contentType, fileSize, filePath, gridfsFileId;
 
     if (isPDF) {
       // Handle PDF download
@@ -197,7 +197,8 @@ async function downloadAndUploadToRAG(source, idrssd) {
           uploadStream.on('error', reject);
         });
 
-        console.log(`[Phase 1 Auto-Download] PDF uploaded to GridFS with file ID: ${uploadStream.id}`);
+        gridfsFileId = uploadStream.id;
+        console.log(`[Phase 1 Auto-Download] PDF uploaded to GridFS with file ID: ${gridfsFileId}`);
 
         // Create PDF record with GridFS reference
         const pdf = new PDF({
@@ -206,7 +207,7 @@ async function downloadAndUploadToRAG(source, idrssd) {
           originalFilename: source.title + '.pdf' || 'download.pdf',
           storedFilename: filename,
           fileSize: fileSize,
-          gridfsFileId: uploadStream.id,
+          gridfsFileId: gridfsFileId,
           contentType: 'application/pdf',
           sourceId: source.sourceId,
           sourceUrl: source.url,
@@ -331,18 +332,27 @@ async function downloadAndUploadToRAG(source, idrssd) {
     // Create GroundingDocument
     console.log(`[Phase 1 Auto-Download] Creating GroundingDocument...`);
 
-    const groundingDoc = new GroundingDocument({
+    const groundingDocData = {
       filename: source.title + (isPDF ? '.pdf' : '.txt'),
       title: source.title || source.url,
       idrssd: idrssd,
-      filePath: filePath,
       fileSize: fileSize,
       topics: mapDocumentTypeToTopics(source.category),
       bankTypes: ['all'],
       assetSizeRange: 'all',
       processingStatus: 'pending',
       sourceId: source.sourceId
-    });
+    };
+
+    // For PDFs, use GridFS; for text, use filePath (legacy)
+    if (isPDF && gridfsFileId) {
+      groundingDocData.gridfsFileId = gridfsFileId;
+      groundingDocData.contentType = 'application/pdf';
+    } else {
+      groundingDocData.filePath = filePath;
+    }
+
+    const groundingDoc = new GroundingDocument(groundingDocData);
 
     await groundingDoc.save();
     console.log(`[Phase 1 Auto-Download] GroundingDocument created: ${groundingDoc._id}`);
