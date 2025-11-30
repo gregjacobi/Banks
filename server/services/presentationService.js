@@ -509,21 +509,20 @@ class PresentationService {
       trendsData: reportData.trendsData // Include trends data for client-side chart rendering
     };
 
-    // Step 4: Save JSON file
-    const timestamp = Date.now();
-    const filename = `${idrssd}_${timestamp}.json`;
-    const presentationsDir = path.join(__dirname, '../data/presentations');
-    await fs.mkdir(presentationsDir, { recursive: true });
-    const filePath = path.join(presentationsDir, filename);
+    // Step 4: Save to MongoDB
+    const PresentationData = require('../models/PresentationData');
+    const presentation = await PresentationData.create({
+      idrssd,
+      reportingPeriod: new Date(reportData.statements?.[0]?.reportingPeriod || Date.now()),
+      presentationData: presentationData
+    });
 
-    await fs.writeFile(filePath, JSON.stringify(presentationData, null, 2), 'utf8');
-
-    console.log(`[Presentation] Saved to ${filename}`);
+    console.log(`[Presentation] Saved to MongoDB: ${presentation._id}`);
 
     return {
-      filename,
-      url: `/presentations/${idrssd}/${filename}`,
-      timestamp,
+      presentationId: presentation._id.toString(),
+      url: `/presentations/${idrssd}/${presentation._id}`,
+      timestamp: Date.now(),
       slideCount: slides.length,
       data: presentationData // Include data in response for immediate use
     };

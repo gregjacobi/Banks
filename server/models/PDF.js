@@ -82,6 +82,17 @@ const pdfSchema = new mongoose.Schema({
     ref: 'GroundingDocument'
   },
 
+  // GridFS file ID (reference to file in 'pdfs' GridFS bucket)
+  gridfsFileId: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+
+  // Content type
+  contentType: {
+    type: String,
+    default: 'application/pdf'
+  },
+
   // Metadata
   uploadedAt: {
     type: Date,
@@ -98,12 +109,55 @@ pdfSchema.index({ idrssd: 1, uploadedAt: -1 });
 // Instance methods
 
 /**
- * Get file path for this PDF
+ * Get file path for this PDF (DEPRECATED - for backward compatibility only)
+ * Use getReadStream() or getBuffer() for GridFS files
  */
 pdfSchema.methods.getFilePath = function() {
-  const path = require('path');
-  const PDFS_DIR = path.join(__dirname, '../data/research/pdfs');
-  return path.join(PDFS_DIR, this.idrssd, this.storedFilename);
+  // For backward compatibility with old filesystem-based PDFs
+  if (!this.gridfsFileId) {
+    const path = require('path');
+    const PDFS_DIR = path.join(__dirname, '../data/research/pdfs');
+    return path.join(PDFS_DIR, this.idrssd, this.storedFilename);
+  }
+  throw new Error('PDF is stored in GridFS. Use getReadStream() or getBuffer() instead.');
+};
+
+/**
+ * Get read stream for this PDF from GridFS
+ */
+pdfSchema.methods.getReadStream = function() {
+  if (!this.gridfsFileId) {
+    throw new Error('PDF does not have a GridFS file ID');
+  }
+  const { pdfBucket } = require('../config/gridfs');
+  return pdfBucket.openDownloadStream(this.gridfsFileId);
+};
+
+/**
+ * Get PDF buffer from GridFS (use sparingly - prefer streaming)
+ */
+pdfSchema.methods.getBuffer = async function() {
+  if (!this.gridfsFileId) {
+    throw new Error('PDF does not have a GridFS file ID');
+  }
+  const stream = this.getReadStream();
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+};
+
+/**
+ * Delete PDF file from GridFS
+ */
+pdfSchema.methods.deleteFile = async function() {
+  if (!this.gridfsFileId) {
+    throw new Error('PDF does not have a GridFS file ID');
+  }
+  const { pdfBucket } = require('../config/gridfs');
+  await pdfBucket.delete(this.gridfsFileId);
+  return this.deleteOne();
 };
 
 // Static methods

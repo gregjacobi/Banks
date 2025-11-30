@@ -38,10 +38,8 @@ class PDFMetricsAgent {
     const hashes = [];
     for (const pdf of pdfs) {
       try {
-        const pdfPath = pdf.getFilePath();
-        const stats = await fs.stat(pdfPath);
-        // Use file size + modification time + PDF ID as hash components
-        const hashInput = `${pdf.pdfId}-${stats.size}-${stats.mtimeMs}`;
+        // Use GridFS file ID + file size + PDF ID as hash components
+        const hashInput = `${pdf.pdfId}-${pdf.fileSize}-${pdf.gridfsFileId}`;
         const hash = crypto.createHash('md5').update(hashInput).digest('hex');
         hashes.push(hash);
       } catch (error) {
@@ -132,11 +130,11 @@ class PDFMetricsAgent {
       // Build prompt and attach PDFs
       const messageContent = [];
 
-      // Attach PDFs (with page limit check)
+      // Attach PDFs (with page limit check) from GridFS
       for (const pdf of pdfsToAnalyze) {
         try {
-          const pdfPath = pdf.getFilePath();
-          const pdfData = await fs.readFile(pdfPath);
+          // Get PDF data from GridFS
+          const pdfData = await pdf.getBuffer();
 
           // Check page count (Claude API has a 100-page limit)
           const pdfDoc = await PDFDocument.load(pdfData);

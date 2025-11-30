@@ -47,7 +47,6 @@ if (isProduction) {
 }
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bankexplorer';
-const LOGO_DIR = path.join(__dirname, '../../data/logos');
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -111,10 +110,10 @@ LOGO SOURCES (in order of preference):
   5. FDIC bank data API
 
 OUTPUT:
-  - Logos saved to: server/data/logos/
-  - Full logos: {idrssd}_full.{ext}
-  - Symbol logos: {idrssd}_symbol.{ext}
-  - Metadata stored in BankMetadata model
+  - Logos saved to: MongoDB GridFS (images bucket)
+  - Full logos: {idrssd}.{ext}
+  - Symbol logos: {idrssd}-symbol.{ext}
+  - Metadata and references stored in BankLogo model
 
 NOTES:
   - Uses Claude AI to parse search results and identify logo URLs
@@ -359,13 +358,10 @@ async function findLogoForBank(bank) {
   });
   log.success('Logo URLs saved to database');
 
-  log.step(6, 'Validating and saving full logo file');
+  log.step(6, 'Validating and saving full logo file to GridFS');
   try {
-    await fs.mkdir(LOGO_DIR, { recursive: true });
-
     const ext = `.${logoData.format}`;
     const filename = `${bank.idrssd}${ext}`;
-    const filepath = path.join(LOGO_DIR, filename);
 
     log.info('Logo already downloaded from Brandfetch, validating...');
 
@@ -415,41 +411,59 @@ async function findLogoForBank(bank) {
     }
     log.success('✓ No error page indicators found');
 
-    // Write file to disk
-    log.step(6, 'Writing file to disk');
-    await fs.writeFile(filepath, logoData.data);
-    log.success(`File written: ${filepath}`);
+    // Upload to GridFS
+    log.step(6, 'Uploading logo to GridFS');
+    const { imageBucket } = require('../../config/gridfs');
+    const BankLogo = require('../../models/BankLogo');
 
-    // Validation Step 5: Verify file was written correctly
-    log.step(7, 'Verifying written file');
-    const stats = await fs.stat(filepath);
-
-    if (stats.size !== logoData.data.length) {
-      throw new Error(`File size mismatch: expected ${logoData.data.length}, got ${stats.size}`);
+    // Check if logo already exists for this bank
+    const existingLogo = await BankLogo.findOne({ idrssd: bank.idrssd });
+    if (existingLogo) {
+      log.info('Deleting existing logo from GridFS');
+      await existingLogo.deleteFile();
     }
-    log.success(`✓ File size verified: ${stats.size} bytes`);
 
-    // Validation Step 6: Read file back to ensure it's readable
-    const readBack = await fs.readFile(filepath);
-    if (readBack.length !== logoData.data.length) {
-      throw new Error('File readback verification failed');
-    }
-    log.success('✓ File readback successful');
+    const uploadStream = imageBucket.openUploadStream(filename, {
+      contentType: logoData.contentType,
+      metadata: {
+        idrssd: bank.idrssd,
+        bankName: bank.name,
+        source: logoData.source,
+        logoType: logoData.logoType,
+        uploadedAt: new Date()
+      }
+    });
 
-    // Validation Step 7: Check file permissions
-    try {
-      await fs.access(filepath, fs.constants.R_OK);
-      log.success('✓ File is readable');
-    } catch (permError) {
-      throw new Error(`File permissions issue: ${permError.message}`);
-    }
+    uploadStream.end(Buffer.from(logoData.data));
+
+    await new Promise((resolve, reject) => {
+      uploadStream.on('finish', resolve);
+      uploadStream.on('error', reject);
+    });
+
+    log.success(`Logo uploaded to GridFS with file ID: ${uploadStream.id}`);
+
+    // Create or update BankLogo record
+    log.step(7, 'Creating BankLogo record');
+    await BankLogo.findOneAndUpdate(
+      { idrssd: bank.idrssd },
+      {
+        idrssd: bank.idrssd,
+        gridfsFileId: uploadStream.id,
+        filename: filename,
+        contentType: logoData.contentType,
+        fileSize: logoData.size,
+        source: logoData.source
+      },
+      { upsert: true, new: true }
+    );
 
     // Update metadata with validated full logo
-    log.step(8, 'Updating database with validated full logo');
+    log.step(8, 'Updating BankMetadata with validated full logo');
     await metadata.updateLogo({
       url: logoData.url,
       source: logoData.source,
-      localPath: filepath,
+      gridfsFileId: uploadStream.id,
       symbolUrl: symbolLogoData?.url || logoData.url
     });
     log.success('Database updated with validated full logo');
@@ -457,22 +471,20 @@ async function findLogoForBank(bank) {
     log.section('✅ FULL LOGO VALIDATION PASSED');
     log.debug('Final full logo details', {
       filename,
-      filepath,
+      gridfsFileId: uploadStream.id.toString(),
       size: `${fileSizeKB.toFixed(2)} KB`,
       contentType,
       format: isSVG ? 'SVG' : isPNG ? 'PNG' : isJPEG ? 'JPEG' : 'Unknown',
-      readable: true,
       verified: true
     });
 
     // Now validate and save symbol logo if we found one
-    let symbolFilepath = null;
+    let symbolGridfsFileId = null;
     if (symbolLogoData) {
-      log.step(9, 'Validating and saving symbol logo file');
+      log.step(9, 'Validating and saving symbol logo file to GridFS');
       try {
         const symbolExt = `.${symbolLogoData.format}`;
         const symbolFilename = `${bank.idrssd}-symbol${symbolExt}`;
-        symbolFilepath = path.join(LOGO_DIR, symbolFilename);
 
         log.info('Validating symbol logo...');
 
@@ -503,51 +515,54 @@ async function findLogoForBank(bank) {
           log.success(`✓ Symbol file signature valid: ${format}`);
         }
 
-        // Write symbol file to disk
-        log.step(10, 'Writing symbol file to disk');
-        await fs.writeFile(symbolFilepath, symbolLogoData.data);
-        log.success(`Symbol file written: ${symbolFilepath}`);
+        // Upload symbol to GridFS
+        log.step(10, 'Uploading symbol logo to GridFS');
+        const symbolUploadStream = imageBucket.openUploadStream(symbolFilename, {
+          contentType: symbolContentType,
+          metadata: {
+            idrssd: bank.idrssd,
+            bankName: bank.name,
+            source: symbolLogoData.source,
+            logoType: 'symbol',
+            uploadedAt: new Date()
+          }
+        });
 
-        // Verify written file
-        const symbolStats = await fs.stat(symbolFilepath);
-        if (symbolStats.size !== symbolLogoData.data.length) {
-          throw new Error(`Symbol file size mismatch: expected ${symbolLogoData.data.length}, got ${symbolStats.size}`);
-        }
-        log.success(`✓ Symbol file size verified: ${symbolStats.size} bytes`);
+        symbolUploadStream.end(symbolBuffer);
 
-        // Update metadata with symbol local path
+        await new Promise((resolve, reject) => {
+          symbolUploadStream.on('finish', resolve);
+          symbolUploadStream.on('error', reject);
+        });
+
+        log.success(`Symbol logo uploaded to GridFS with file ID: ${symbolUploadStream.id}`);
+        symbolGridfsFileId = symbolUploadStream.id;
+
+        // Update metadata with symbol GridFS file ID
         log.step(11, 'Updating database with validated symbol logo');
         await metadata.updateLogo({
           url: logoData.url,
           source: logoData.source,
-          localPath: filepath,
+          gridfsFileId: uploadStream.id,
           symbolUrl: symbolLogoData.url,
-          symbolLocalPath: symbolFilepath
+          symbolGridfsFileId: symbolGridfsFileId
         });
         log.success('Database updated with validated symbol logo');
 
         log.section('✅ SYMBOL LOGO VALIDATION PASSED');
         log.debug('Final symbol logo details', {
           filename: symbolFilename,
-          filepath: symbolFilepath,
+          gridfsFileId: symbolGridfsFileId.toString(),
           size: `${symbolFileSizeKB.toFixed(2)} KB`,
           contentType: symbolContentType,
           format: symbolIsSVG ? 'SVG' : symbolIsPNG ? 'PNG' : symbolIsJPEG ? 'JPEG' : 'Unknown',
-          readable: true,
           verified: true
         });
 
       } catch (symbolError) {
         log.warning(`Symbol logo validation failed: ${symbolError.message}`);
         log.info('Continuing with full logo only');
-        // Clean up partial symbol file if it exists
-        try {
-          if (symbolFilepath) {
-            await fs.unlink(symbolFilepath);
-          }
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-        }
+        // Note: GridFS will clean up partial uploads automatically on error
       }
     }
 
@@ -556,9 +571,9 @@ async function findLogoForBank(bank) {
       logo: {
         url: logoData.url,
         source: logoData.source,
-        localPath: filepath,
+        gridfsFileId: uploadStream.id.toString(),
         symbolUrl: symbolLogoData?.url || logoData.url,
-        symbolLocalPath: symbolFilepath || filepath
+        symbolGridfsFileId: symbolGridfsFileId?.toString() || uploadStream.id.toString()
       },
       metadata: {
         domain: logoData.domain,
@@ -576,14 +591,7 @@ async function findLogoForBank(bank) {
       validationFailed: true
     });
 
-    // Clean up partial file if it exists
-    try {
-      const filepath = path.join(LOGO_DIR, `${bank.idrssd}.${logoData.format}`);
-      await fs.unlink(filepath);
-      log.info('Cleaned up partial download');
-    } catch (cleanupError) {
-      // Ignore cleanup errors
-    }
+    // Note: GridFS will clean up partial uploads automatically on error
 
     return { success: false, error: validationError.message, validationFailed: true };
   }

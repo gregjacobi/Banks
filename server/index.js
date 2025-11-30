@@ -18,6 +18,10 @@ mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('MongoDB connected successfully');
 
+    // Initialize GridFS buckets for file storage
+    const { initializeGridFS } = require('./config/gridfs');
+    initializeGridFS();
+
     // Optional: Clear UBPR cache on startup
     // Set CLEAR_UBPR_CACHE_ON_STARTUP=true in .env to enable
     if (process.env.CLEAR_UBPR_CACHE_ON_STARTUP === 'true') {

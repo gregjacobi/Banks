@@ -255,17 +255,54 @@ class ElevenLabsService {
   }
 
   /**
-   * Save audio buffer to file
+   * Save audio buffer to GridFS
    * @param {Buffer} audioBuffer - Audio data
-   * @param {string} filePath - Path to save file
+   * @param {string} idrssd - Bank identifier
+   * @param {string} scriptId - Reference to podcast script (optional)
+   * @returns {Promise<string>} PodcastAudio document ID
    */
-  async saveAudioFile(audioBuffer, filePath) {
+  async saveAudioFile(audioBuffer, idrssd, scriptId = null) {
     try {
-      await fs.writeFile(filePath, audioBuffer);
-      console.log(`Audio saved to ${filePath}`);
-      return filePath;
+      const { audioBucket } = require('../config/gridfs');
+      const PodcastAudio = require('../models/PodcastAudio');
+
+      const filename = `podcast_${idrssd}_${Date.now()}.mp3`;
+
+      console.log(`Uploading audio to GridFS: ${filename} (${Math.round(audioBuffer.length / 1024)}KB)`);
+
+      // Upload to GridFS
+      const uploadStream = audioBucket.openUploadStream(filename, {
+        contentType: 'audio/mpeg',
+        metadata: {
+          idrssd,
+          scriptId,
+          uploadedAt: new Date()
+        }
+      });
+
+      uploadStream.end(audioBuffer);
+
+      await new Promise((resolve, reject) => {
+        uploadStream.on('finish', resolve);
+        uploadStream.on('error', reject);
+      });
+
+      console.log(`Audio uploaded to GridFS with file ID: ${uploadStream.id}`);
+
+      // Create PodcastAudio record
+      const audio = await PodcastAudio.create({
+        idrssd,
+        scriptId,
+        gridfsFileId: uploadStream.id,
+        filename,
+        fileSize: audioBuffer.length
+      });
+
+      console.log(`PodcastAudio document created: ${audio._id}`);
+
+      return audio._id.toString();
     } catch (error) {
-      console.error('Error saving audio file:', error);
+      console.error('Error saving audio file to GridFS:', error);
       throw new Error(`Failed to save audio: ${error.message}`);
     }
   }

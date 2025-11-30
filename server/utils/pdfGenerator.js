@@ -8,32 +8,41 @@ const path = require('path');
  * @param {string} markdown - The markdown content to convert
  * @param {string} title - The document title
  * @param {string} bankName - Bank name for header
- * @param {string} logoPath - Optional path to bank logo file
+ * @param {Buffer|string} logoBuffer - Optional logo buffer or GridFS file ID (deprecated: file path)
+ * @param {string} logoContentType - Optional content type (e.g., 'image/png', 'image/svg+xml')
  * @returns {Promise<Buffer>} - PDF buffer
  */
-async function generatePDFFromMarkdown(markdown, title = 'Bank Analysis Report', bankName = '', logoPath = null) {
+async function generatePDFFromMarkdown(markdown, title = 'Bank Analysis Report', bankName = '', logoBuffer = null, logoContentType = null) {
   let browser;
   try {
     // Convert markdown to HTML
     const htmlContent = marked.parse(markdown);
 
-    // Read and encode logo if provided
+    // Encode logo if provided
     let logoDataUrl = null;
-    if (logoPath) {
+    if (logoBuffer) {
       try {
-        const logoBuffer = await fs.readFile(logoPath);
-        const ext = path.extname(logoPath).toLowerCase();
-        const mimeTypes = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.svg': 'image/svg+xml'
-        };
-        const mimeType = mimeTypes[ext] || 'image/png';
-        logoDataUrl = `data:${mimeType};base64,${logoBuffer.toString('base64')}`;
+        // Handle backward compatibility: if logoBuffer is a string, assume it's a file path
+        let buffer = logoBuffer;
+        let mimeType = logoContentType || 'image/png';
+
+        if (typeof logoBuffer === 'string') {
+          // Legacy: file path provided
+          buffer = await fs.readFile(logoBuffer);
+          const ext = path.extname(logoBuffer).toLowerCase();
+          const mimeTypes = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.svg': 'image/svg+xml'
+          };
+          mimeType = mimeTypes[ext] || 'image/png';
+        }
+
+        logoDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
       } catch (err) {
-        console.error('Error reading logo file:', err);
-        // Continue without logo if it fails to read
+        console.error('Error processing logo:', err);
+        // Continue without logo if it fails
       }
     }
 
@@ -235,7 +244,9 @@ async function generatePDFFromMarkdown(markdown, title = 'Bank Analysis Report',
  * @param {string} options.markdown - The markdown content
  * @param {string} options.title - Document title
  * @param {string} options.bankName - Bank name
- * @param {string} options.bankLogoPath - Path to bank logo
+ * @param {Buffer|string} options.bankLogoBuffer - Bank logo buffer (deprecated: bankLogoPath)
+ * @param {string} options.bankLogoContentType - Bank logo content type
+ * @param {string} options.bankLogoPath - DEPRECATED: Path to bank logo (use bankLogoBuffer instead)
  * @param {string} options.generatedAt - Generation timestamp
  * @returns {Promise<Buffer>} - PDF buffer
  */
@@ -244,7 +255,9 @@ async function generateProfessionalPDF(options) {
     markdown,
     title = 'Bank Analysis Report',
     bankName = '',
-    bankLogoPath = null,
+    bankLogoBuffer = null,
+    bankLogoContentType = null,
+    bankLogoPath = null, // Deprecated but kept for backward compatibility
     generatedAt = new Date().toISOString()
   } = options;
 
@@ -253,22 +266,30 @@ async function generateProfessionalPDF(options) {
     // Convert markdown to HTML
     const htmlContent = marked.parse(markdown);
 
-    // Read bank logo if provided
+    // Process bank logo if provided
     let bankLogoDataUrl = null;
-    if (bankLogoPath) {
+    const logoSource = bankLogoBuffer || bankLogoPath;
+    if (logoSource) {
       try {
-        const logoBuffer = await fs.readFile(bankLogoPath);
-        const ext = path.extname(bankLogoPath).toLowerCase();
-        const mimeTypes = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.svg': 'image/svg+xml'
-        };
-        const mimeType = mimeTypes[ext] || 'image/png';
-        bankLogoDataUrl = `data:${mimeType};base64,${logoBuffer.toString('base64')}`;
+        let buffer = logoSource;
+        let mimeType = bankLogoContentType || 'image/png';
+
+        if (typeof logoSource === 'string') {
+          // Legacy: file path provided
+          buffer = await fs.readFile(logoSource);
+          const ext = path.extname(logoSource).toLowerCase();
+          const mimeTypes = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.svg': 'image/svg+xml'
+          };
+          mimeType = mimeTypes[ext] || 'image/png';
+        }
+
+        bankLogoDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
       } catch (err) {
-        console.error('[PDF] Error reading bank logo:', err.message);
+        console.error('[PDF] Error processing bank logo:', err.message);
       }
     }
 

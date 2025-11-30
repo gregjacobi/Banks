@@ -32,26 +32,56 @@ class GroundingService {
 
       console.log(`[GroundingService] Processing ${document.filename}...`);
 
-      // 1. Load document (PDF or text)
-      const fileExt = path.extname(document.filePath).toLowerCase();
+      // 1. Load document (PDF or text) from GridFS
+      const fileExt = path.extname(document.filename).toLowerCase();
       const isPDF = fileExt === '.pdf';
 
       let pages;
-      if (isPDF) {
-        console.log(`[GroundingService] Loading as PDF...`);
-        const loader = new PDFLoader(document.filePath, {
-          splitPages: true
-        });
-        pages = await loader.load();
-      } else {
-        console.log(`[GroundingService] Loading as text file...`);
-        // Read text file directly
-        const textContent = await fs.readFile(document.filePath, 'utf-8');
-        // Create document structure matching langchain format
-        pages = [{
-          pageContent: textContent,
-          metadata: { source: document.filePath }
-        }];
+      let tempFilePath = null;
+
+      try {
+        if (isPDF) {
+          console.log(`[GroundingService] Loading PDF from GridFS...`);
+
+          // Write GridFS stream to temp file for PDFLoader
+          // PDFLoader needs a file path, so we use /tmp for temporary storage
+          tempFilePath = path.join('/tmp', `rag_${document._id}.pdf`);
+          const writeStream = require('fs').createWriteStream(tempFilePath);
+          const readStream = document.getReadStream();
+
+          await new Promise((resolve, reject) => {
+            readStream.pipe(writeStream);
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+            readStream.on('error', reject);
+          });
+
+          console.log(`[GroundingService] Temp file created: ${tempFilePath}`);
+
+          const loader = new PDFLoader(tempFilePath, {
+            splitPages: true
+          });
+          pages = await loader.load();
+        } else {
+          console.log(`[GroundingService] Loading as text file from GridFS...`);
+          // Read text file directly from GridFS
+          const textContent = await document.getBuffer();
+          // Create document structure matching langchain format
+          pages = [{
+            pageContent: textContent.toString('utf-8'),
+            metadata: { source: document.filename }
+          }];
+        }
+      } finally {
+        // Clean up temp file
+        if (tempFilePath) {
+          try {
+            await fs.unlink(tempFilePath);
+            console.log(`[GroundingService] Temp file cleaned up: ${tempFilePath}`);
+          } catch (error) {
+            console.error(`[GroundingService] Error cleaning up temp file:`, error.message);
+          }
+        }
       }
 
       console.log(`[GroundingService] Loaded ${pages.length} pages/sections`);

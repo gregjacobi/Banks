@@ -284,7 +284,8 @@ class FFIECImportService {
         requiredFiles.rc = path.join(extractPath, file);
       } else if (lowerFile.includes('rcci') && lowerFile.endsWith('.txt')) {
         requiredFiles.rcci = path.join(extractPath, file);
-      } else if (lowerFile.includes('schedule ri.') && lowerFile.endsWith('.txt') && !lowerFile.includes('rib')) {
+      } else if (lowerFile.includes('schedule ri') && lowerFile.endsWith('.txt') && !lowerFile.includes('rib') && !lowerFile.includes('rcm') && !lowerFile.includes('rcn') && !lowerFile.includes('rcci')) {
+        // Match "schedule ri" (with or without dot) but exclude other schedules
         requiredFiles.ri = path.join(extractPath, file);
       } else if (lowerFile.includes('rcm') && lowerFile.endsWith('.txt')) {
         requiredFiles.rcm = path.join(extractPath, file);

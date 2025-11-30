@@ -7,23 +7,8 @@ const GroundingDocument = require('../models/GroundingDocument');
 const GroundingChunk = require('../models/GroundingChunk');
 const groundingService = require('../services/groundingService');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../data/grounding_pdfs');
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename: timestamp_originalname
-    const uniqueName = `${Date.now()}_${file.originalname}`;
-    cb(null, uniqueName);
-  }
-});
+// Configure multer for file uploads (using memoryStorage for GridFS)
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
@@ -51,23 +36,41 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
 
     const { title, topics, bankTypes, assetSizeRange } = req.body;
 
-    console.log(`[API] Uploading document: ${req.file.originalname}`);
+    console.log(`[API] Uploading document to GridFS: ${req.file.originalname}`);
+
+    // Upload file to GridFS
+    const { pdfBucket } = require('../config/gridfs');
+    const uploadStream = pdfBucket.openUploadStream(req.file.originalname, {
+      contentType: 'application/pdf',
+      metadata: {
+        uploadedAt: new Date(),
+        originalName: req.file.originalname
+      }
+    });
+
+    uploadStream.end(req.file.buffer);
+
+    await new Promise((resolve, reject) => {
+      uploadStream.on('finish', resolve);
+      uploadStream.on('error', reject);
+    });
+
+    console.log(`[API] File uploaded to GridFS with ID: ${uploadStream.id}`);
 
     // Auto-suggest tags if not provided
+    // Note: Auto-suggest now needs to work with GridFS, so we'll skip for now and use defaults
     let suggestedTags = {};
-    if (!topics || !bankTypes) {
-      console.log('[API] Auto-suggesting tags...');
-      suggestedTags = await groundingService.autoSuggestTags(req.file.path);
-    }
+    // TODO: Implement auto-suggest tags for GridFS files if needed
 
-    // Create document record
+    // Create document record with GridFS reference
     const document = await GroundingDocument.create({
       filename: req.file.originalname,
       title: title || req.file.originalname.replace('.pdf', ''),
       fileSize: req.file.size,
-      filePath: req.file.path,
-      topics: topics ? JSON.parse(topics) : suggestedTags.topics,
-      bankTypes: bankTypes ? JSON.parse(bankTypes) : suggestedTags.bankTypes,
+      gridfsFileId: uploadStream.id,
+      contentType: 'application/pdf',
+      topics: topics ? JSON.parse(topics) : suggestedTags.topics || [],
+      bankTypes: bankTypes ? JSON.parse(bankTypes) : suggestedTags.bankTypes || [],
       assetSizeRange: assetSizeRange || suggestedTags.assetSizeRange || 'all',
       processingStatus: 'pending'
     });
@@ -408,44 +411,24 @@ router.get('/documents/:id/view', async (req, res) => {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    if (!document.filePath) {
-      return res.status(404).json({ error: 'Document file not found' });
-    }
-
-    const fs = require('fs');
-    const path = require('path');
-
-    // Resolve the file path
-    const fullPath = path.resolve(document.filePath);
-
-    // Check if file exists
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'Document file not found on disk' });
-    }
-
-    // Determine content type based on file extension or stored content type
-    let contentType = document.contentType || 'application/pdf';
-
-    // Map file extensions to content types if not explicitly stored
-    const ext = path.extname(document.filename).toLowerCase();
-    if (!document.contentType) {
-      const contentTypeMap = {
-        '.pdf': 'application/pdf',
-        '.txt': 'text/plain',
-        '.html': 'text/html',
-        '.json': 'application/json',
-        '.md': 'text/markdown'
-      };
-      contentType = contentTypeMap[ext] || 'application/octet-stream';
+    if (!document.gridfsFileId) {
+      return res.status(404).json({ error: 'Document file not found in GridFS' });
     }
 
     // Set headers for document viewing
-    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Type', document.contentType || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${document.filename}"`);
 
-    // Stream the file
-    const fileStream = fs.createReadStream(fullPath);
-    fileStream.pipe(res);
+    // Stream the file from GridFS
+    const readStream = document.getReadStream();
+    readStream.pipe(res);
+
+    readStream.on('error', (error) => {
+      console.error('[API] Stream error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error streaming document' });
+      }
+    });
 
   } catch (error) {
     console.error('[API] View document error:', error);

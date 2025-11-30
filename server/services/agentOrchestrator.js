@@ -544,8 +544,8 @@ class AgentOrchestrator {
       for (const pdfSource of pdfSources) {
         try {
           const pdf = pdfSource.pdfObject;
-          const pdfPath = pdf.getFilePath();
-          const pdfData = await fs.readFile(pdfPath);
+          // Get PDF data from GridFS
+          const pdfData = await pdf.getBuffer();
           const base64Data = pdfData.toString('base64');
 
           // Use Claude to extract relevant content from PDF

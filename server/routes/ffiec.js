@@ -6,22 +6,8 @@ const fs = require('fs').promises;
 const AdmZip = require('adm-zip');
 const ffiecImportService = require('../services/ffiecImportService');
 
-// Configure multer for zip file upload
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/ffiec');
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    cb(null, `ffiec_${timestamp}_${file.originalname}`);
-  }
-});
+// Configure multer for zip file upload (use memoryStorage for Heroku compatibility)
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -40,11 +26,13 @@ const upload = multer({
 /**
  * Extract ZIP file using manual extraction (fixes AdmZip line truncation issues)
  * AdmZip's extractAllTo() has issues with very long lines in tab-delimited files
+ * @param {Buffer} zipBuffer - ZIP file buffer from multer memoryStorage
+ * @param {string} extractPath - Path to extract files to
  */
-async function extractZipManually(zipPath, extractPath) {
+async function extractZipManually(zipBuffer, extractPath) {
   await fs.mkdir(extractPath, { recursive: true });
 
-  const zip = new AdmZip(zipPath);
+  const zip = new AdmZip(zipBuffer);
   const zipEntries = zip.getEntries();
 
   for (const entry of zipEntries) {
@@ -71,6 +59,7 @@ async function extractZipManually(zipPath, extractPath) {
 router.post('/upload', upload.single('ffiecZip'), async (req, res) => {
   const logs = [];
   let extractPath = null;
+  let tempZipPath = null;
 
   try {
     if (!req.file) {
@@ -82,17 +71,35 @@ router.post('/upload', upload.single('ffiecZip'), async (req, res) => {
 
     // Extract zip file with manual extraction to avoid AdmZip truncation issues
     logs.push({ message: 'Extracting ZIP file...', type: 'info' });
-    const zipPath = req.file.path;
-    extractPath = path.join(path.dirname(zipPath), `extract_${Date.now()}`);
 
-    await extractZipManually(zipPath, extractPath);
+    // Extract to /tmp directory (Heroku-compatible temporary processing)
+    extractPath = path.join('/tmp', `ffiec_extract_${Date.now()}`);
+
+    await extractZipManually(req.file.buffer, extractPath);
 
     const extractedFiles = await fs.readdir(extractPath);
     logs.push({ message: `✓ Extracted ${extractedFiles.length} files`, type: 'success' });
 
+    // Log first 10 files for debugging
+    logs.push({ message: 'First 10 extracted files:', type: 'info' });
+    extractedFiles.slice(0, 10).forEach(file => {
+      logs.push({ message: `  - ${file}`, type: 'info' });
+    });
+
     // Find required files using shared service
     logs.push({ message: 'Locating required data files...', type: 'info' });
     const files = await ffiecImportService.findRequiredFiles(extractPath);
+
+    // Log which files were found
+    logs.push({ message: 'Files found:', type: 'info' });
+    for (const [key, path] of Object.entries(files)) {
+      if (path) {
+        const filename = require('path').basename(path);
+        logs.push({ message: `  ✓ ${key.toUpperCase()}: ${filename}`, type: 'success' });
+      } else {
+        logs.push({ message: `  ✗ ${key.toUpperCase()}: NOT FOUND`, type: 'warning' });
+      }
+    }
 
     const missingFiles = [];
     if (!files.por) missingFiles.push('POR (Bank Information)');
@@ -127,18 +134,10 @@ router.post('/upload', upload.single('ffiecZip'), async (req, res) => {
     const logFn = (message, type) => logs.push({ message, type });
     const result = await ffiecImportService.processImport(files, reportingPeriod, logFn);
 
-    // Clean up temporary extraction
+    // Clean up temporary extraction directory
     logs.push({ message: 'Cleaning up temporary files...', type: 'info' });
     await fs.rm(extractPath, { recursive: true, force: true });
 
-    // Copy ZIP to data directory for future re-imports
-    const dataDir = path.join(__dirname, '../../data');
-    await fs.mkdir(dataDir, { recursive: true });
-    const archiveZipPath = path.join(dataDir, req.file.originalname);
-    await fs.copyFile(zipPath, archiveZipPath);
-    await fs.unlink(zipPath);
-
-    logs.push({ message: `✓ ZIP file archived to: data/${req.file.originalname}`, type: 'success' });
     logs.push({ message: '✓ Cleanup complete', type: 'success' });
 
     res.json({

@@ -17,27 +17,8 @@ const PresentationService = require('../services/presentationService');
 const prompts = require('../prompts/bankAnalysis');
 const jobTracker = require('../services/jobTracker');
 
-// Directories for storing research reports, podcasts, and presentations
-const RESEARCH_DIR = path.join(__dirname, '../data/research');
-const PODCAST_DIR = path.join(__dirname, '../data/podcasts');
-const PODCAST_SCRIPTS_DIR = path.join(__dirname, '../data/podcasts/scripts');
-const PRESENTATIONS_DIR = path.join(__dirname, '../data/presentations');
-const PDFS_DIR = path.join(__dirname, '../data/research/pdfs');
-
-// Ensure directories exist
-const ensureDirectories = async () => {
-  try {
-    await fs.mkdir(RESEARCH_DIR, { recursive: true });
-    await fs.mkdir(PODCAST_DIR, { recursive: true });
-    await fs.mkdir(PODCAST_SCRIPTS_DIR, { recursive: true });
-    await fs.mkdir(PRESENTATIONS_DIR, { recursive: true });
-  } catch (error) {
-    console.error('Error creating directories:', error);
-  }
-};
-
-// Initialize directories on module load
-ensureDirectories();
+// GridFS storage - no filesystem directories needed
+// All files are stored in MongoDB GridFS buckets or as MongoDB documents
 
 // Initialize services
 const claudeService = new ClaudeService();
@@ -188,27 +169,45 @@ async function downloadAndUploadToRAG(source, idrssd) {
           }
         });
 
-        // Save to disk
+        // Upload to GridFS
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(7);
         const filename = `${timestamp}_${randomId}.pdf`;
-        const bankPdfDir = path.join(PDFS_DIR, idrssd);
-        await fs.mkdir(bankPdfDir, { recursive: true });
-        filePath = path.join(bankPdfDir, filename);
-
-        await fs.writeFile(filePath, response.data);
-        fileSize = response.data.length;
+        const pdfBuffer = Buffer.from(response.data);
+        fileSize = pdfBuffer.length;
         contentType = 'pdf';
 
-        console.log(`[Phase 1 Auto-Download] PDF saved: ${fileSize} bytes`);
+        console.log(`[Phase 1 Auto-Download] Uploading PDF to GridFS: ${fileSize} bytes`);
 
-        // Create PDF record
+        const { pdfBucket } = require('../config/gridfs');
+        const uploadStream = pdfBucket.openUploadStream(filename, {
+          contentType: 'application/pdf',
+          metadata: {
+            idrssd,
+            sourceUrl: source.url,
+            uploadType: 'from_source',
+            uploadedAt: new Date()
+          }
+        });
+
+        uploadStream.end(pdfBuffer);
+
+        await new Promise((resolve, reject) => {
+          uploadStream.on('finish', resolve);
+          uploadStream.on('error', reject);
+        });
+
+        console.log(`[Phase 1 Auto-Download] PDF uploaded to GridFS with file ID: ${uploadStream.id}`);
+
+        // Create PDF record with GridFS reference
         const pdf = new PDF({
           pdfId: `pdf_${timestamp}_${randomId}`,
           idrssd,
           originalFilename: source.title + '.pdf' || 'download.pdf',
           storedFilename: filename,
           fileSize: fileSize,
+          gridfsFileId: uploadStream.id,
+          contentType: 'application/pdf',
           sourceId: source.sourceId,
           sourceUrl: source.url,
           uploadType: 'from_source',
@@ -1245,7 +1244,16 @@ Write in a professional, analytical tone suitable for investors and executives. 
       webSearchSources: webSearchSources // Track web search sources for citation tracking
     };
 
-    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
+    // Save report to MongoDB
+    const ResearchReport = require('../models/ResearchReport');
+    await ResearchReport.create({
+      idrssd,
+      title: `${institution.name} Analysis - ${new Date().toLocaleDateString()}`,
+      reportData: reportData,
+      agentVersion: 'v2.0'
+    });
+
+    console.log(`Report saved to MongoDB for bank ${idrssd}`);
 
     // Step 7: Complete
     sendStatus('complete', 'Agent-based report generated successfully', {
@@ -2076,32 +2084,38 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
       }
     );
 
-    // Step 4: Save audio file
-    sendStatus('saving', 'Saving podcast file...');
+    // Step 4: Save script to MongoDB
+    const PodcastScript = require('../models/PodcastScript');
+    const podcastScript = await PodcastScript.create({
+      idrssd,
+      reportingPeriod: new Date(reportData.trendsData?.statements?.[0]?.reportingPeriod || Date.now()),
+      scriptData: {
+        segments: script.segments,
+        metadata: script.metadata,
+        fullText: script.fullText,
+        experts: selectedExperts
+      },
+      duration
+    });
 
-    const timestamp = Date.now();
-    const filename = `${idrssd}_${timestamp}.mp3`;
-    const filePath = path.join(PODCAST_DIR, filename);
+    console.log(`Podcast script saved to MongoDB: ${podcastScript._id}`);
 
-    await elevenLabsService.saveAudioFile(audioBuffer, filePath);
+    // Step 5: Save audio file to GridFS
+    sendStatus('saving', 'Saving podcast audio to GridFS...');
 
-    // Step 5: Update report with podcast metadata
-    reportData.podcast = {
-      filename,
-      generatedAt: new Date().toISOString(),
-      experts: selectedExperts,
-      duration,
-      stats,
-      scriptMetadata: script.metadata
-    };
+    const audioId = await elevenLabsService.saveAudioFile(audioBuffer, idrssd, podcastScript._id);
 
-    await fs.writeFile(reportFile, JSON.stringify(reportData, null, 2));
+    // Step 6: Update script with audio reference
+    podcastScript.audioFileId = audioId;
+    await podcastScript.save();
+
+    console.log(`Podcast audio saved to GridFS: ${audioId}`);
 
     // Send completion
     sendStatus('complete', 'Podcast generated successfully!', {
       podcast: {
-        filename,
-        url: `/api/research/${idrssd}/podcast/${filename}`,
+        audioId,
+        url: `/api/research/${idrssd}/podcast/${audioId}`,
         duration,
         experts: selectedExperts.map(id => elevenLabsService.getCharacterName(id))
       }
@@ -2134,18 +2148,31 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
  * GET /api/research/:idrssd/podcast/:filename
  * Download podcast audio file
  */
-router.get('/:idrssd/podcast/:filename', async (req, res) => {
+router.get('/:idrssd/podcast/:audioId', async (req, res) => {
   try {
-    const { filename } = req.params;
-    const filePath = path.join(PODCAST_DIR, filename);
+    const { audioId } = req.params;
+    const PodcastAudio = require('../models/PodcastAudio');
 
-    // Check if file exists
-    await fs.access(filePath);
+    // Find audio by ID
+    const audio = await PodcastAudio.findById(audioId);
 
-    // Send file
+    if (!audio) {
+      return res.status(404).json({ error: 'Podcast audio not found' });
+    }
+
+    // Stream audio from GridFS
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.sendFile(filePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${audio.filename}"`);
+
+    const readStream = audio.getReadStream();
+    readStream.pipe(res);
+
+    readStream.on('error', (error) => {
+      console.error('Error streaming podcast audio:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error streaming audio' });
+      }
+    });
 
   } catch (error) {
     console.error('Error serving podcast file:', error);
@@ -5560,42 +5587,35 @@ router.post('/:idrssd/pdfs/:pdfId/reprocess', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/logo
- * Get bank logo (checks metadata for correct file path and format)
+ * Get bank logo from GridFS
  */
 router.get('/:idrssd/logo', async (req, res) => {
   try {
     const { idrssd } = req.params;
-    const path = require('path');
-    const fs = require('fs').promises;
-    const BankMetadata = require('../models/BankMetadata');
+    const BankLogo = require('../models/BankLogo');
 
-    // First, check database for logo path
-    const metadata = await BankMetadata.findOne({ idrssd });
+    // Find logo in GridFS
+    const logo = await BankLogo.findOne({ idrssd });
 
-    if (metadata?.logo?.localPath) {
-      try {
-        await fs.access(metadata.logo.localPath);
-        return res.sendFile(metadata.logo.localPath);
-      } catch (err) {
-        console.log(`[Get Logo] Metadata path not accessible: ${metadata.logo.localPath}`);
-      }
+    if (!logo) {
+      return res.status(404).json({ error: 'Logo not found' });
     }
 
-    // Fall back to checking common file extensions
-    const extensions = ['svg', 'png', 'jpg', 'jpeg', 'webp'];
-    const logosDir = path.join(__dirname, '..', 'data', 'logos');
+    // Set content type header
+    res.setHeader('Content-Type', logo.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
 
-    for (const ext of extensions) {
-      const logoPath = path.join(logosDir, `${idrssd}.${ext}`);
-      try {
-        await fs.access(logoPath);
-        return res.sendFile(logoPath);
-      } catch {
-        // Try next extension
+    // Stream logo from GridFS
+    const readStream = logo.getReadStream();
+    readStream.pipe(res);
+
+    readStream.on('error', (err) => {
+      console.error('[Get Logo] Stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream logo' });
       }
-    }
+    });
 
-    res.status(404).json({ error: 'Logo not found' });
   } catch (error) {
     console.error('[Get Logo] Error:', error);
     res.status(500).json({
@@ -5607,66 +5627,43 @@ router.get('/:idrssd/logo', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/logo-symbol
- * Get bank logo symbol (checks metadata for correct file path and format)
+ * Get bank logo symbol from GridFS (falls back to regular logo if symbol not available)
  */
 router.get('/:idrssd/logo-symbol', async (req, res) => {
   try {
     const { idrssd } = req.params;
-    const path = require('path');
-    const fs = require('fs').promises;
-    const BankMetadata = require('../models/BankMetadata');
+    const BankLogo = require('../models/BankLogo');
 
-    // First, check database for symbol path
-    const metadata = await BankMetadata.findOne({ idrssd });
-
-    if (metadata?.logo?.symbolLocalPath) {
-      try {
-        await fs.access(metadata.logo.symbolLocalPath);
-        return res.sendFile(metadata.logo.symbolLocalPath);
-      } catch (err) {
-        console.log(`[Get Logo Symbol] Metadata symbol path not accessible: ${metadata.logo.symbolLocalPath}`);
-      }
-    }
-
-    // Fall back to checking common symbol naming patterns
-    const extensions = ['webp', 'svg', 'png', 'jpg', 'jpeg'];
-    const logosDir = path.join(__dirname, '..', 'data', 'logos');
-    const patterns = ['-symbol', '_symbol', '-icon', '_icon'];
-
-    for (const pattern of patterns) {
-      for (const ext of extensions) {
-        const symbolPath = path.join(logosDir, `${idrssd}${pattern}.${ext}`);
-        try {
-          await fs.access(symbolPath);
-          return res.sendFile(symbolPath);
-        } catch {
-          // Try next combination
-        }
-      }
-    }
+    // Try to find symbol logo first (filename contains -symbol)
+    let logo = await BankLogo.findOne({
+      idrssd,
+      filename: { $regex: /-symbol\./i }
+    });
 
     // If no symbol found, fall back to regular logo
-    if (metadata?.logo?.localPath) {
-      try {
-        await fs.access(metadata.logo.localPath);
-        return res.sendFile(metadata.logo.localPath);
-      } catch {
-        // Continue to final fallback
-      }
+    if (!logo) {
+      logo = await BankLogo.findOne({ idrssd });
     }
 
-    // Final fallback: try regular logo extensions
-    for (const ext of extensions) {
-      const logoPath = path.join(logosDir, `${idrssd}.${ext}`);
-      try {
-        await fs.access(logoPath);
-        return res.sendFile(logoPath);
-      } catch {
-        // Try next extension
-      }
+    if (!logo) {
+      return res.status(404).json({ error: 'Logo not found' });
     }
 
-    res.status(404).json({ error: 'Logo not found' });
+    // Set content type header
+    res.setHeader('Content-Type', logo.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+
+    // Stream logo from GridFS
+    const readStream = logo.getReadStream();
+    readStream.pipe(res);
+
+    readStream.on('error', (err) => {
+      console.error('[Get Logo Symbol] Stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream logo' });
+      }
+    });
+
   } catch (error) {
     console.error('[Get Logo Symbol] Error:', error);
     res.status(500).json({

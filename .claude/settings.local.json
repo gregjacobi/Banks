@@ -57,7 +57,8 @@
       "Bash(heroku config:set:*)",
       "Bash(source:*)",
       "Bash(heroku logs:*)",
-      "Bash(heroku restart:*)"
+      "Bash(heroku restart:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

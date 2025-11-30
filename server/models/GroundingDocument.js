@@ -29,7 +29,18 @@ const groundingDocumentSchema = new mongoose.Schema({
   // File metadata
   fileSize: Number,  // bytes
   pageCount: Number,
-  filePath: String,  // Path to PDF in filesystem
+  filePath: String,  // Path to PDF in filesystem (DEPRECATED - for backward compatibility)
+
+  // GridFS file ID (reference to file in 'pdfs' GridFS bucket)
+  gridfsFileId: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+
+  // Content type
+  contentType: {
+    type: String,
+    default: 'application/pdf'
+  },
 
   // Metadata for filtering (user editable)
   topics: [{
@@ -94,6 +105,44 @@ groundingDocumentSchema.index({ processingStatus: 1 });
 groundingDocumentSchema.methods.incrementRetrievalCount = function() {
   this.timesRetrieved += 1;
   return this.save();
+};
+
+/**
+ * Get read stream for this document from GridFS
+ */
+groundingDocumentSchema.methods.getReadStream = function() {
+  if (!this.gridfsFileId) {
+    throw new Error('Document does not have a GridFS file ID');
+  }
+  const { pdfBucket } = require('../config/gridfs');
+  return pdfBucket.openDownloadStream(this.gridfsFileId);
+};
+
+/**
+ * Get document buffer from GridFS (use sparingly - prefer streaming)
+ */
+groundingDocumentSchema.methods.getBuffer = async function() {
+  if (!this.gridfsFileId) {
+    throw new Error('Document does not have a GridFS file ID');
+  }
+  const stream = this.getReadStream();
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+};
+
+/**
+ * Delete document file from GridFS
+ */
+groundingDocumentSchema.methods.deleteFile = async function() {
+  if (!this.gridfsFileId) {
+    throw new Error('Document does not have a GridFS file ID');
+  }
+  const { pdfBucket } = require('../config/gridfs');
+  await pdfBucket.delete(this.gridfsFileId);
+  return this.deleteOne();
 };
 
 groundingDocumentSchema.statics.getByTopics = function(topics) {

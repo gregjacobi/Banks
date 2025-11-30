@@ -99,7 +99,8 @@ class ClaudeService {
 
           for (const pdf of pdfs) {
             try {
-              const pdfData = await fs.readFile(pdf.getFilePath());
+              // Get PDF data from GridFS
+              const pdfData = await pdf.getBuffer();
               const base64Data = pdfData.toString('base64');
 
               messageContent.push({

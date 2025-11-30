@@ -83,18 +83,18 @@ The UBPR validation system caches results in MongoDB. When making changes to UBP
 #### Check for Running Servers
 Before starting the server, check if ports are already in use:
 ```bash
-# List processes using ports 3000 and 5001
-lsof -i:3000 -i:5001
+# List processes using ports 5000 and 5001
+lsof -i:5000 -i:5001
 
 # Or just get the PIDs
-lsof -ti:3000 -ti:5001
+lsof -ti:5000 -ti:5001
 ```
 
 #### Kill Existing Servers
 If ports are in use, kill the processes:
 ```bash
-# Kill all processes on ports 3000 and 5001
-lsof -ti:3000 -ti:5001 | xargs kill -9
+# Kill all processes on ports 5000 and 5001
+lsof -ti:5000 -ti:5001 | xargs kill -9
 ```
 
 #### Start Server with Logging
@@ -109,8 +109,8 @@ npm run dev
 
 #### Complete Restart Process
 When changes aren't being picked up or server issues occur:
-1. **Check for running processes**: `lsof -i:3000 -i:5001`
-2. **Kill existing servers**: `lsof -ti:3000 -ti:5001 | xargs kill -9`
+1. **Check for running processes**: `lsof -i:5000 -i:5001`
+2. **Kill existing servers**: `lsof -ti:5000 -ti:5001 | xargs kill -9`
 3. **Start server with logging**: `npm run dev > /tmp/server.log 2>&1 &`
 4. **Monitor logs**: `tail -f /tmp/server.log`
 5. **Verify startup**:
