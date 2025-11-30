@@ -2562,6 +2562,34 @@ router.get('/:idrssd/gather-sources', async (req, res) => {
       }
     }
 
+    // PHASE 5: Fetch logo if not already present
+    sendEvent('progress', {
+      progress: 95,
+      message: 'Checking for bank logo...'
+    });
+
+    try {
+      const { findLogoForBank } = require('../scripts/cli/findLogos');
+      const logoResult = await findLogoForBank({
+        idrssd: bank.idrssd,
+        name: bank.name,
+        city: bank.city,
+        state: bank.state,
+        totalAssets: 0
+      });
+
+      if (logoResult && logoResult.success && !logoResult.existing) {
+        sendEvent('logo-fetched', { success: true, existing: false });
+      } else if (logoResult && logoResult.existing) {
+        sendEvent('logo-fetched', { success: true, existing: true });
+      } else {
+        sendEvent('logo-fetched', { success: false });
+      }
+    } catch (logoError) {
+      console.error('Error fetching logo:', logoError);
+      sendEvent('logo-fetched', { success: false, error: logoError.message });
+    }
+
     sendEvent('progress', {
       progress: 100,
       message: `Complete! Selected top ${totalRecommended} sources out of ${totalSaved} found.`
