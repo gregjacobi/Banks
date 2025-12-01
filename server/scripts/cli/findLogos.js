@@ -145,6 +145,10 @@ async function connectDB() {
   try {
     await mongoose.connect(MONGODB_URI);
     log.success('Connected to MongoDB');
+
+    // Initialize GridFS buckets
+    const { initializeGridFS } = require('../../config/gridfs');
+    initializeGridFS();
   } catch (error) {
     log.error('MongoDB connection error: ' + error.message);
     process.exit(1);
