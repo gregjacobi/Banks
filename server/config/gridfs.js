@@ -3,18 +3,20 @@ const mongoose = require('mongoose');
 /**
  * GridFS Configuration for Bank Explorer
  *
- * Three separate buckets for different file types:
+ * Four separate buckets for different file types:
  * - pdfs: PDF documents (bank reports, grounding docs, exports, ZIPs)
  * - audio: MP3 podcast audio files
  * - images: Bank logos (PNG, JPG, SVG)
+ * - documents: JSON documents (research reports, podcast scripts, presentations)
  *
  * Usage:
- *   const { pdfBucket, audioBucket, imageBucket } = require('./config/gridfs');
+ *   const { pdfBucket, audioBucket, imageBucket, documentBucket } = require('./config/gridfs');
  */
 
 let pdfBucket = null;
 let audioBucket = null;
 let imageBucket = null;
+let documentBucket = null;
 
 /**
  * Initialize GridFS buckets
@@ -43,7 +45,13 @@ function initializeGridFS() {
     chunkSizeBytes: 128 * 1024  // 128KB
   });
 
-  console.log('✓ GridFS buckets initialized (pdfs, audio, images)');
+  // Document Bucket: 255KB chunks (for JSON documents - research reports, scripts, presentations)
+  documentBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: 'documents',
+    chunkSizeBytes: 255 * 1024  // 255KB
+  });
+
+  console.log('✓ GridFS buckets initialized (pdfs, audio, images, documents)');
 }
 
 /**
@@ -76,6 +84,16 @@ function getImageBucket() {
   return imageBucket;
 }
 
+/**
+ * Get document bucket
+ */
+function getDocumentBucket() {
+  if (!documentBucket) {
+    throw new Error('GridFS not initialized. Call initializeGridFS() first.');
+  }
+  return documentBucket;
+}
+
 module.exports = {
   initializeGridFS,
   get pdfBucket() {
@@ -86,5 +104,8 @@ module.exports = {
   },
   get imageBucket() {
     return getImageBucket();
+  },
+  get documentBucket() {
+    return getDocumentBucket();
   }
 };

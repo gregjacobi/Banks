@@ -1,5 +1,4 @@
 const path = require('path');
-const fs = require('fs').promises;
 const Anthropic = require('@anthropic-ai/sdk');
 const Institution = require('../models/Institution');
 const FinancialStatement = require('../models/FinancialStatement');
@@ -8,7 +7,12 @@ const Source = require('../models/Source');
 const AgentOrchestrator = require('./agentOrchestrator');
 const modelResolver = require('./modelResolver');
 
-const RESEARCH_DIR = path.join(__dirname, '../data/research');
+// GridFS storage for research reports
+const gridfs = require('../config/gridfs');
+const { saveJsonToGridFS } = require('../utils/gridfsHelpers');
+
+// Helper to get document bucket (lazy access after GridFS initialization)
+const getDocumentBucket = () => gridfs.documentBucket;
 
 /**
  * Prepare trends data from financial statements
@@ -305,7 +309,6 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
 
     const timestamp = Date.now();
     const fileName = `${idrssd}_agent_${timestamp}.json`;
-    const filePath = path.join(RESEARCH_DIR, fileName);
 
     // Extract web search sources for tracking
     const webSearchSources = extractWebSearchSources(agentResult);
@@ -325,10 +328,12 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
       webSearchSources: webSearchSources
     };
 
-    // Ensure directory exists
-    await fs.mkdir(RESEARCH_DIR, { recursive: true });
-
-    await fs.writeFile(filePath, JSON.stringify(reportData, null, 2));
+    // Save to GridFS
+    await saveJsonToGridFS(getDocumentBucket(), fileName, reportData, {
+      idrssd,
+      type: 'agent-report',
+      method: 'agent-based'
+    });
 
     // Step 8: Complete - Update phase status
     try {

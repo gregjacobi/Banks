@@ -17,8 +17,19 @@ const PresentationService = require('../services/presentationService');
 const prompts = require('../prompts/bankAnalysis');
 const jobTracker = require('../services/jobTracker');
 
-// GridFS storage - no filesystem directories needed
-// All files are stored in MongoDB GridFS buckets or as MongoDB documents
+// GridFS storage - all research reports, scripts, and presentations stored in GridFS
+const gridfs = require('../config/gridfs');
+const {
+  saveJsonToGridFS,
+  loadJsonFromGridFS,
+  listFilesInGridFS,
+  deleteFileFromGridFS,
+  fileExistsInGridFS
+} = require('../utils/gridfsHelpers');
+
+// Helper functions to get buckets (lazy access after GridFS initialization)
+const getDocumentBucket = () => gridfs.getDocumentBucket();
+const getAudioBucket = () => gridfs.getAudioBucket();
 
 // Initialize services
 const claudeService = new ClaudeService();
@@ -416,9 +427,11 @@ router.get('/:idrssd/latest', async (req, res) => {
   try {
     const { idrssd } = req.params;
 
-    // Find all reports for this bank
-    const files = await fs.readdir(RESEARCH_DIR);
-    const bankReports = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+    // Find all reports for this bank in GridFS
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.json$` }
+    });
+    const bankReports = files.map(f => f.filename);
 
     if (bankReports.length === 0) {
       return res.status(404).json({
@@ -440,10 +453,8 @@ router.get('/:idrssd/latest', async (req, res) => {
       return timeB - timeA; // Most recent first
     });
 
-    // Read the most recent report
-    const latestFile = path.join(RESEARCH_DIR, bankReports[0]);
-    const reportData = await fs.readFile(latestFile, 'utf-8');
-    const report = JSON.parse(reportData);
+    // Read the most recent report from GridFS
+    const report = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     res.json({
       hasReport: true,
@@ -1214,7 +1225,6 @@ Write in a professional, analytical tone suitable for investors and executives. 
 
     const timestamp = Date.now();
     const fileName = `${idrssd}_agent_${timestamp}.json`;
-    const filePath = path.join(RESEARCH_DIR, fileName);
 
     // Extract web search sources for tracking
     const webSearchSources = [];
@@ -1348,25 +1358,29 @@ router.delete('/:idrssd/clear-all', async (req, res) => {
     const sourcesResult = await Source.deleteMany({ idrssd });
     console.log(`[ClearAll] Deleted ${sourcesResult.deletedCount} sources`);
 
-    // 2. Delete all report files for this bank
+    // 2. Delete all report files for this bank from GridFS
     let deletedReports = 0;
     try {
-      const reportFiles = (await fs.readdir(RESEARCH_DIR)).filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+      const reportFiles = await listFilesInGridFS(getDocumentBucket(), {
+        filename: { $regex: `^${idrssd}_.*\\.json$` }
+      });
       for (const file of reportFiles) {
-        await fs.unlink(path.join(RESEARCH_DIR, file));
+        await deleteFileFromGridFS(getDocumentBucket(), file.filename);
         deletedReports++;
       }
-      console.log(`[ClearAll] Deleted ${deletedReports} report files`);
+      console.log(`[ClearAll] Deleted ${deletedReports} report files from GridFS`);
     } catch (err) {
       console.error('[ClearAll] Error deleting reports:', err.message);
     }
 
-    // 3. Delete all podcast files for this bank
+    // 3. Delete all podcast files for this bank (from GridFS getAudioBucket())
     let deletedPodcasts = 0;
     try {
-      const podcastFiles = (await fs.readdir(PODCAST_DIR)).filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.mp3'));
+      const podcastFiles = await listFilesInGridFS(getAudioBucket(), {
+        filename: { $regex: `^${idrssd}_.*\\.mp3$` }
+      });
       for (const file of podcastFiles) {
-        await fs.unlink(path.join(PODCAST_DIR, file));
+        await deleteFileFromGridFS(getAudioBucket(), file.filename);
         deletedPodcasts++;
       }
       console.log(`[ClearAll] Deleted ${deletedPodcasts} podcast files`);
@@ -1580,8 +1594,8 @@ router.delete('/:idrssd/:filename', async (req, res) => {
       return res.status(400).json({ error: 'Invalid filename' });
     }
 
-    const filePath = path.join(RESEARCH_DIR, filename);
-    await fs.unlink(filePath);
+    // Delete from GridFS
+    await deleteFileFromGridFS(getDocumentBucket(), filename);
 
     res.json({ success: true, message: 'Report deleted successfully' });
 
@@ -1778,11 +1792,12 @@ router.get('/:idrssd/podcast/latest', async (req, res) => {
   try {
     const { idrssd } = req.params;
 
-    // Find all podcasts for this bank
-    const files = await fs.readdir(PODCAST_DIR);
-    const bankPodcasts = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.mp3'));
+    // Find all podcasts for this bank (from GridFS getAudioBucket())
+    const files = await listFilesInGridFS(getAudioBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.mp3$` }
+    });
 
-    if (bankPodcasts.length === 0) {
+    if (files.length === 0) {
       return res.status(404).json({
         error: 'No podcasts found',
         podcast: null
@@ -1790,19 +1805,18 @@ router.get('/:idrssd/podcast/latest', async (req, res) => {
     }
 
     // Sort by timestamp (filename format: idrssd_timestamp.mp3)
-    bankPodcasts.sort((a, b) => {
+    const bankPodcasts = files.map(f => f.filename).sort((a, b) => {
       const timeA = parseInt(a.split('_')[1].split('.')[0]);
       const timeB = parseInt(b.split('_')[1].split('.')[0]);
       return timeB - timeA; // Most recent first
     });
 
     const latestPodcast = bankPodcasts[0];
+    const latestPodcastFile = files.find(f => f.filename === latestPodcast);
     const timestamp = parseInt(latestPodcast.split('_')[1].split('.')[0]);
 
     // Get file size to estimate duration (rough estimate: 1MB ≈ 1 minute)
-    const filePath = path.join(PODCAST_DIR, latestPodcast);
-    const stats = await fs.stat(filePath);
-    const estimatedDuration = Math.round(stats.size / 1024 / 1024); // MB as rough minutes
+    const estimatedDuration = Math.round(latestPodcastFile.length / 1024 / 1024); // MB as rough minutes
 
     res.json({
       podcast: {
@@ -1826,11 +1840,13 @@ router.get('/:idrssd/podcast/script/latest', async (req, res) => {
   try {
     const { idrssd } = req.params;
 
-    // Find all scripts for this bank
-    const files = await fs.readdir(PODCAST_SCRIPTS_DIR);
-    const bankScripts = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+    // Find all scripts for this bank (from GridFS getDocumentBucket())
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.json$` },
+      'metadata.type': 'podcast-script'
+    });
 
-    if (bankScripts.length === 0) {
+    if (files.length === 0) {
       return res.status(404).json({
         error: 'No podcast scripts found',
         script: null
@@ -1838,15 +1854,14 @@ router.get('/:idrssd/podcast/script/latest', async (req, res) => {
     }
 
     // Sort by timestamp (filename format: idrssd_timestamp.json)
-    bankScripts.sort((a, b) => {
+    const bankScripts = files.map(f => f.filename).sort((a, b) => {
       const timeA = parseInt(a.split('_')[1].split('.')[0]);
       const timeB = parseInt(b.split('_')[1].split('.')[0]);
       return timeB - timeA; // Most recent first
     });
 
     const latestScript = bankScripts[0];
-    const scriptPath = path.join(PODCAST_SCRIPTS_DIR, latestScript);
-    const scriptData = JSON.parse(await fs.readFile(scriptPath, 'utf-8'));
+    const scriptData = await loadJsonFromGridFS(getDocumentBucket(), latestScript);
 
     res.json({
       script: scriptData,
@@ -1860,25 +1875,35 @@ router.get('/:idrssd/podcast/script/latest', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/podcast/download/:filename
- * Download a specific podcast file
+ * Download a specific podcast file (from GridFS getAudioBucket())
  */
 router.get('/:idrssd/podcast/download/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(PODCAST_DIR, filename);
 
-    // Check if file exists and get stats
-    const stats = await fs.stat(filePath);
+    // Get file metadata to check if it exists and get size
+    const files = await listFilesInGridFS(getAudioBucket(), { filename });
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'Podcast not found' });
+    }
+
+    const fileInfo = files[0];
 
     // Set proper headers for audio streaming with duration support
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Content-Length', fileInfo.length);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
 
-    // Stream the file
-    const fileStream = require('fs').createReadStream(filePath);
-    fileStream.pipe(res);
+    // Stream the file from GridFS
+    const downloadStream = getAudioBucket().openDownloadStreamByName(filename);
+    downloadStream.on('error', (error) => {
+      console.error('Error streaming podcast:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream podcast' });
+      }
+    });
+    downloadStream.pipe(res);
   } catch (error) {
     console.error('Error downloading podcast:', error);
     res.status(404).json({ error: 'Podcast not found' });
@@ -1887,30 +1912,29 @@ router.get('/:idrssd/podcast/download/:filename', async (req, res) => {
 
 /**
  * DELETE /api/research/:idrssd/podcast/:filename
- * Delete a specific podcast file
+ * Delete a specific podcast file (from GridFS getAudioBucket())
  */
 router.delete('/:idrssd/podcast/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(PODCAST_DIR, filename);
 
-    // Check if file exists
-    try {
-      await fs.access(filePath);
-    } catch (error) {
+    // Check if file exists in GridFS
+    const exists = await fileExistsInGridFS(getAudioBucket(), filename);
+    if (!exists) {
       return res.status(404).json({ error: 'Podcast not found' });
     }
 
-    // Delete the file
-    await fs.unlink(filePath);
+    // Delete the file from GridFS
+    await deleteFileFromGridFS(getAudioBucket(), filename);
     console.log(`[Podcast Delete] Deleted podcast file: ${filename}`);
 
     // Also update the report JSON if it has podcast metadata
     try {
-      const reportFiles = (await fs.readdir(RESEARCH_DIR)).filter(f => 
-        f.startsWith(`${req.params.idrssd}_`) && f.endsWith('.json')
-      );
-      
+      const files = await listFilesInGridFS(getDocumentBucket(), {
+        filename: { $regex: `^${req.params.idrssd}_.*\\.json$` }
+      });
+      const reportFiles = files.map(f => f.filename);
+
       if (reportFiles.length > 0) {
         // Sort by timestamp (most recent first)
         reportFiles.sort((a, b) => {
@@ -1922,12 +1946,11 @@ router.delete('/:idrssd/podcast/:filename', async (req, res) => {
         });
 
         // Check the most recent report
-        const latestReport = path.join(RESEARCH_DIR, reportFiles[0]);
-        const reportData = JSON.parse(await fs.readFile(latestReport, 'utf-8'));
-        
+        const reportData = await loadJsonFromGridFS(getDocumentBucket(), reportFiles[0]);
+
         if (reportData.podcast && reportData.podcast.filename === filename) {
           delete reportData.podcast;
-          await fs.writeFile(latestReport, JSON.stringify(reportData, null, 2));
+          await saveJsonToGridFS(getDocumentBucket(), reportFiles[0], reportData, { idrssd: req.params.idrssd, type: 'research', updated: true });
           console.log(`[Podcast Delete] Removed podcast metadata from report`);
         }
       }
@@ -1936,9 +1959,9 @@ router.delete('/:idrssd/podcast/:filename', async (req, res) => {
       // Not a fatal error - continue
     }
 
-    res.json({ 
-      success: true, 
-      message: 'Podcast deleted successfully' 
+    res.json({
+      success: true,
+      message: 'Podcast deleted successfully'
     });
 
   } catch (error) {
@@ -2035,8 +2058,10 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
     // Step 1: Load existing research report
     sendStatus('loading', 'Loading research report...');
 
-    const files = await fs.readdir(RESEARCH_DIR);
-    const bankReports = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.json$` }
+    });
+    const bankReports = files.map(f => f.filename);
 
     if (bankReports.length === 0) {
       sendStatus('error', 'No research report found. Please generate a report first.');
@@ -2051,8 +2076,7 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
       return timeB - timeA;
     });
 
-    const reportFile = path.join(RESEARCH_DIR, bankReports[0]);
-    const reportData = JSON.parse(await fs.readFile(reportFile, 'utf-8'));
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     // Step 2: Generate podcast script
     sendStatus('script', 'Bankskie is preparing the show script...');
@@ -2213,8 +2237,10 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       message: 'Loading research report...'
     });
 
-    const files = await fs.readdir(RESEARCH_DIR);
-    const bankReports = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.json$` }
+    });
+    const bankReports = files.map(f => f.filename);
 
     if (bankReports.length === 0) {
       throw new Error('No research report found. Please generate a report first.');
@@ -2227,37 +2253,37 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       return timeB - timeA;
     });
 
-    const reportFile = path.join(RESEARCH_DIR, bankReports[0]);
-    const reportData = JSON.parse(await fs.readFile(reportFile, 'utf-8'));
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     let script, duration, stats, scriptFilename;
     const podcastScriptService = new PodcastScriptService();
 
     // Step 2: Get script (either from existing file or generate new)
     if (useExistingScript) {
-      // Try to load existing script
+      // Try to load existing script from GridFS
       jobTracker.updateJob(jobId, {
         progress: 30,
         message: 'Loading existing podcast script...'
       });
 
-      const scriptFiles = await fs.readdir(PODCAST_SCRIPTS_DIR);
-      const bankScripts = scriptFiles.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+      const scriptFiles = await listFilesInGridFS(getDocumentBucket(), {
+        filename: { $regex: `^${idrssd}_.*\\.json$` },
+        'metadata.type': 'podcast-script'
+      });
 
-      if (bankScripts.length === 0) {
+      if (scriptFiles.length === 0) {
         throw new Error('No existing script found. Generate a script first or set useExistingScript=false.');
       }
 
       // Get most recent script
-      bankScripts.sort((a, b) => {
+      const bankScripts = scriptFiles.map(f => f.filename).sort((a, b) => {
         const timeA = parseInt(a.split('_')[1].split('.')[0]);
         const timeB = parseInt(b.split('_')[1].split('.')[0]);
         return timeB - timeA;
       });
 
       scriptFilename = bankScripts[0];
-      const scriptPath = path.join(PODCAST_SCRIPTS_DIR, scriptFilename);
-      const scriptData = JSON.parse(await fs.readFile(scriptPath, 'utf-8'));
+      const scriptData = await loadJsonFromGridFS(getDocumentBucket(), scriptFilename);
 
       script = scriptData.script;
       duration = scriptData.duration;
@@ -2287,10 +2313,9 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       duration = podcastScriptService.estimateDuration(script.fullText);
       stats = podcastScriptService.getScriptStats(script.segments);
 
-      // Save script to file (before audio generation)
+      // Save script to GridFS (before audio generation)
       const scriptTimestamp = Date.now();
       scriptFilename = `${idrssd}_${scriptTimestamp}.json`;
-      const scriptFilePath = path.join(PODCAST_SCRIPTS_DIR, scriptFilename);
 
       const scriptData = {
         idrssd,
@@ -2306,7 +2331,7 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
         }
       };
 
-      await fs.writeFile(scriptFilePath, JSON.stringify(scriptData, null, 2));
+      await saveJsonToGridFS(getDocumentBucket(), scriptFilename, scriptData, { idrssd, type: 'podcast-script' });
       console.log(`[Job ${jobId}] Script saved to ${scriptFilename}`);
     }
 
@@ -2341,7 +2366,7 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       }
     );
 
-    // Step 4: Save audio file
+    // Step 4: Save audio file to GridFS
     jobTracker.updateJob(jobId, {
       progress: 95,
       message: 'Saving podcast file...'
@@ -2349,9 +2374,19 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
 
     const timestamp = Date.now();
     const filename = `${idrssd}_${timestamp}.mp3`;
-    const filePath = path.join(PODCAST_DIR, filename);
 
-    await elevenLabsService.saveAudioFile(audioBuffer, filePath);
+    // Save audio to GridFS getAudioBucket()
+    const { Readable } = require('stream');
+    const uploadStream = getAudioBucket().openUploadStream(filename, {
+      contentType: 'audio/mpeg',
+      metadata: { idrssd, type: 'podcast', uploadedAt: new Date() }
+    });
+    const readableStream = Readable.from(audioBuffer);
+    await new Promise((resolve, reject) => {
+      uploadStream.on('error', reject);
+      uploadStream.on('finish', resolve);
+      readableStream.pipe(uploadStream);
+    });
 
     // Step 5: Update report with podcast metadata
     reportData.podcast = {
@@ -2363,7 +2398,8 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       scriptMetadata: script.metadata
     };
 
-    await fs.writeFile(reportFile, JSON.stringify(reportData, null, 2));
+    // Save updated report back to GridFS
+    await saveJsonToGridFS(getDocumentBucket(), bankReports[0], reportData, { idrssd, type: 'research', updated: true });
 
     // Step 6: Complete job
     jobTracker.completeJob(jobId, {
@@ -3997,7 +4033,7 @@ ${s.content}
 
     // Save report with source references
     const timestamp = Date.now();
-    const reportFile = path.join(RESEARCH_DIR, `${idrssd}_${timestamp}.json`);
+    const filename = `${idrssd}_${timestamp}.json`;
 
     const reportData = {
       idrssd,
@@ -4018,15 +4054,15 @@ ${s.content}
       metadata: result.metadata
     };
 
-    console.log('Writing report file:', reportFile);
-    await fs.writeFile(reportFile, JSON.stringify(reportData, null, 2));
-    console.log('Report file written successfully');
+    console.log('Saving report to GridFS:', filename);
+    await saveJsonToGridFS(getDocumentBucket(), filename, reportData, { idrssd, type: 'research', sessionId });
+    console.log('Report saved to GridFS successfully');
 
     // Update source usage tracking
     console.log('Updating source usage tracking...');
     for (const source of approvedSources) {
       source.referencedCount = (source.referencedCount || 0) + 1;
-      source.usedInReports.push(reportFile);
+      source.usedInReports.push(filename);
       await source.save();
     }
     console.log('Source tracking updated');
@@ -5519,17 +5555,13 @@ router.get('/:idrssd/gather-metadata', async (req, res) => {
 router.get('/:idrssd/report/:timestamp', async (req, res) => {
   try {
     const { idrssd, timestamp } = req.params;
-    const fs = require('fs').promises;
-    const path = require('path');
 
-    // Build report file path
-    const researchDir = path.join(__dirname, '..', 'data', 'research');
-    const reportFile = path.join(researchDir, `${idrssd}_agent_${timestamp}.json`);
+    // Build report filename
+    const filename = `${idrssd}_agent_${timestamp}.json`;
 
     try {
-      // Read report file
-      const fileContent = await fs.readFile(reportFile, 'utf8');
-      const reportData = JSON.parse(fileContent);
+      // Read report from GridFS
+      const reportData = await loadJsonFromGridFS(getDocumentBucket(), filename);
 
       console.log(`[Get Report] Loaded report for bank ${idrssd}, timestamp ${timestamp}`);
 
@@ -5538,16 +5570,12 @@ router.get('/:idrssd/report/:timestamp', async (req, res) => {
         report: reportData
       });
     } catch (fileError) {
-      if (fileError.code === 'ENOENT') {
-        console.log(`[Get Report] Report not found: ${reportFile}`);
-        res.status(404).json({
-          success: false,
-          error: 'Report not found',
-          details: `No report exists for bank ${idrssd} at timestamp ${timestamp}`
-        });
-      } else {
-        throw fileError;
-      }
+      console.log(`[Get Report] Report not found: ${filename}`);
+      res.status(404).json({
+        success: false,
+        error: 'Report not found',
+        details: `No report exists for bank ${idrssd} at timestamp ${timestamp}`
+      });
     }
   } catch (error) {
     console.error('[Get Report] Error:', error);
@@ -5776,15 +5804,14 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
 
     console.log(`[Presentation] Generating for bank ${idrssd}, report timestamp: ${reportTimestamp}`);
 
-    // Load report file
-    const reportFile = path.join(RESEARCH_DIR, `${idrssd}_agent_${reportTimestamp}.json`);
-    const reportData = JSON.parse(await fs.readFile(reportFile, 'utf8'));
+    // Load report file from GridFS
+    const filename = `${idrssd}_agent_${reportTimestamp}.json`;
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), filename);
 
-    // Check if presentation already exists for this report
+    // Check if presentation already exists for this report (in GridFS)
     if (reportData.presentation && reportData.presentation.filename) {
-      const existingPath = path.join(PRESENTATIONS_DIR, reportData.presentation.filename);
-      try {
-        await fs.access(existingPath);
+      const exists = await fileExistsInGridFS(getDocumentBucket(), reportData.presentation.filename);
+      if (exists) {
         console.log(`[Presentation] Using existing presentation: ${reportData.presentation.filename}`);
         return res.json({
           success: true,
@@ -5795,7 +5822,7 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
             slideCount: reportData.presentation.slideCount
           }
         });
-      } catch {
+      } else {
         // File doesn't exist, continue with generation
         console.log(`[Presentation] Existing presentation file not found, generating new one`);
       }
@@ -5822,7 +5849,8 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
       generatedAt: new Date().toISOString(),
       slideCount: result.slideCount
     };
-    await fs.writeFile(reportFile, JSON.stringify(reportData, null, 2));
+    // Save updated report back to GridFS
+    await saveJsonToGridFS(getDocumentBucket(), filename, reportData, { idrssd, type: 'research', updated: true });
 
     // Mark phase4 as completed (phase4 = podcast/presentation outputs)
     try {
@@ -5875,10 +5903,12 @@ router.get('/:idrssd/presentation/latest', async (req, res) => {
   try {
     const { idrssd } = req.params;
 
-    // Find latest report file
-    const files = await fs.readdir(RESEARCH_DIR);
+    // Find latest report file from GridFS
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_agent_.*\\.json$` }
+    });
     const reportFiles = files
-      .filter(f => f.startsWith(`${idrssd}_agent_`) && f.endsWith('.json'))
+      .map(f => f.filename)
       .sort()
       .reverse();
 
@@ -5887,14 +5917,12 @@ router.get('/:idrssd/presentation/latest', async (req, res) => {
     }
 
     // Check latest report for presentation
-    const reportFile = path.join(RESEARCH_DIR, reportFiles[0]);
-    const reportData = JSON.parse(await fs.readFile(reportFile, 'utf8'));
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), reportFiles[0]);
 
     if (reportData.presentation && reportData.presentation.filename) {
-      // Verify presentation file exists
-      const presentationPath = path.join(PRESENTATIONS_DIR, reportData.presentation.filename);
-      try {
-        await fs.access(presentationPath);
+      // Verify presentation file exists in GridFS
+      const exists = await fileExistsInGridFS(getDocumentBucket(), reportData.presentation.filename);
+      if (exists) {
         res.json({
           presentation: {
             filename: reportData.presentation.filename,
@@ -5903,7 +5931,7 @@ router.get('/:idrssd/presentation/latest', async (req, res) => {
             slideCount: reportData.presentation.slideCount
           }
         });
-      } catch {
+      } else {
         // Presentation file doesn't exist
         res.json({ presentation: null });
       }
@@ -5922,18 +5950,23 @@ router.get('/:idrssd/presentation/latest', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/presentation/:filename
- * Serve HTML presentation file
+ * Serve HTML presentation file (from GridFS getDocumentBucket())
  */
 router.get('/:idrssd/presentation/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(PRESENTATIONS_DIR, filename);
 
-    // Check if file exists
-    await fs.access(filePath);
+    // Check if file exists in GridFS
+    const exists = await fileExistsInGridFS(getDocumentBucket(), filename);
+    if (!exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Presentation not found'
+      });
+    }
 
-    // Read and return JSON presentation data
-    const presentationData = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    // Read and return JSON presentation data from GridFS
+    const presentationData = await loadJsonFromGridFS(getDocumentBucket(), filename);
     res.json(presentationData);
 
   } catch (error) {
@@ -5947,56 +5980,54 @@ router.get('/:idrssd/presentation/:filename', async (req, res) => {
 
 /**
  * DELETE /api/research/:idrssd/presentation/:filename
- * Delete a presentation
+ * Delete a presentation (from GridFS getDocumentBucket())
  */
 router.delete('/:idrssd/presentation/:filename', async (req, res) => {
   try {
     const { idrssd, filename } = req.params;
-    const filePath = path.join(PRESENTATIONS_DIR, filename);
 
     console.log(`[Presentation] Deleting presentation: ${filename}`);
 
-    // Delete presentation file (handle both .html and .json formats)
+    // Delete presentation file from GridFS (handle both .html and .json formats)
     try {
-      await fs.unlink(filePath);
+      await deleteFileFromGridFS(getDocumentBucket(), filename);
       console.log(`[Presentation] Deleted file: ${filename}`);
-    } catch (unlinkError) {
+    } catch (deleteError) {
       // File might not exist or have different extension
       console.log(`[Presentation] File not found or already deleted: ${filename}`);
 
       // Try alternate format (HTML vs JSON)
       const baseFilename = filename.replace(/\.(html|json)$/, '');
       const alternateExt = filename.endsWith('.html') ? '.json' : '.html';
-      const alternatePath = path.join(PRESENTATIONS_DIR, baseFilename + alternateExt);
+      const alternateFilename = baseFilename + alternateExt;
 
       try {
-        await fs.unlink(alternatePath);
-        console.log(`[Presentation] Deleted alternate format: ${baseFilename + alternateExt}`);
+        await deleteFileFromGridFS(getDocumentBucket(), alternateFilename);
+        console.log(`[Presentation] Deleted alternate format: ${alternateFilename}`);
       } catch (altError) {
         console.log(`[Presentation] Neither format found, continuing with metadata cleanup`);
       }
     }
 
     // Find and update report to remove presentation metadata
-    const files = await fs.readdir(RESEARCH_DIR);
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_agent_.*\\.json$` }
+    });
     for (const file of files) {
-      if (file.startsWith(`${idrssd}_agent_`) && file.endsWith('.json')) {
-        const reportPath = path.join(RESEARCH_DIR, file);
-        const reportData = JSON.parse(await fs.readFile(reportPath, 'utf8'));
+      const reportData = await loadJsonFromGridFS(getDocumentBucket(), file.filename);
 
-        // Check both exact match and base filename match (for format migration)
-        const baseFilename = filename.replace(/\.(html|json)$/, '');
-        const metadataFilename = reportData.presentation?.filename?.replace(/\.(html|json)$/, '');
+      // Check both exact match and base filename match (for format migration)
+      const baseFilename = filename.replace(/\.(html|json)$/, '');
+      const metadataFilename = reportData.presentation?.filename?.replace(/\.(html|json)$/, '');
 
-        if (reportData.presentation && (
-          reportData.presentation.filename === filename ||
-          metadataFilename === baseFilename
-        )) {
-          delete reportData.presentation;
-          await fs.writeFile(reportPath, JSON.stringify(reportData, null, 2));
-          console.log(`[Presentation] Removed presentation metadata from report: ${file}`);
-          break;
-        }
+      if (reportData.presentation && (
+        reportData.presentation.filename === filename ||
+        metadataFilename === baseFilename
+      )) {
+        delete reportData.presentation;
+        await saveJsonToGridFS(getDocumentBucket(), file.filename, reportData, { idrssd, type: 'research', updated: true });
+        console.log(`[Presentation] Removed presentation metadata from report: ${file.filename}`);
+        break;
       }
     }
 
@@ -6084,9 +6115,11 @@ router.get('/:idrssd/export-pdf', async (req, res) => {
     const { idrssd } = req.params;
     console.log(`[PDF Export] Starting PDF export for bank ${idrssd}`);
 
-    // 1. Find the latest report for this bank
-    const files = await fs.readdir(RESEARCH_DIR);
-    const bankReports = files.filter(f => f.startsWith(`${idrssd}_`) && f.endsWith('.json'));
+    // 1. Find the latest report for this bank from GridFS
+    const files = await listFilesInGridFS(getDocumentBucket(), {
+      filename: { $regex: `^${idrssd}_.*\\.json$` }
+    });
+    const bankReports = files.map(f => f.filename);
 
     if (bankReports.length === 0) {
       return res.status(404).json({ error: 'No research report found for this bank' });
@@ -6101,8 +6134,7 @@ router.get('/:idrssd/export-pdf', async (req, res) => {
       return timeB - timeA;
     });
 
-    const latestFile = path.join(RESEARCH_DIR, bankReports[0]);
-    const reportData = JSON.parse(await fs.readFile(latestFile, 'utf-8'));
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     // 2. Get bank metadata for logo
     const metadata = await BankMetadata.findOne({ idrssd });

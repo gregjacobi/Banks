@@ -509,20 +509,25 @@ class PresentationService {
       trendsData: reportData.trendsData // Include trends data for client-side chart rendering
     };
 
-    // Step 4: Save to MongoDB
-    const PresentationData = require('../models/PresentationData');
-    const presentation = await PresentationData.create({
+    // Step 4: Save to GridFS documentBucket
+    const gridfs = require('../config/gridfs');
+    const { saveJsonToGridFS } = require('../utils/gridfsHelpers');
+
+    const timestamp = Date.now();
+    const filename = `${idrssd}_presentation_${timestamp}.json`;
+
+    await saveJsonToGridFS(gridfs.documentBucket, filename, presentationData, {
       idrssd,
-      reportingPeriod: new Date(reportData.statements?.[0]?.reportingPeriod || Date.now()),
-      presentationData: presentationData
+      type: 'presentation',
+      reportingPeriod: reportData.statements?.[0]?.reportingPeriod
     });
 
-    console.log(`[Presentation] Saved to MongoDB: ${presentation._id}`);
+    console.log(`[Presentation] Saved to GridFS: ${filename}`);
 
     return {
-      presentationId: presentation._id.toString(),
-      url: `/presentations/${idrssd}/${presentation._id}`,
-      timestamp: Date.now(),
+      filename,
+      url: `/presentations/${idrssd}/${filename}`,
+      timestamp,
       slideCount: slides.length,
       data: presentationData // Include data in response for immediate use
     };
