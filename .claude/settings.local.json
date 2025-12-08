@@ -4,8 +4,7 @@
       "Bash(npm run calc-peers:*)",
       "Bash(curl:*)",
       "WebSearch",
-      "WebFetch(domain:www.anthropic.com)",
-      "WebFetch(domain:claude.com)",
+      "WebFetch(domain:*)",
       "Bash(node server/scripts/cli/findLogos.js:*)",
       "Bash(tee:*)",
       "Bash(lsof:*)",
@@ -58,7 +57,15 @@
       "Bash(source:*)",
       "Bash(heroku logs:*)",
       "Bash(heroku restart:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(zip:*)",
+      "Bash(unzip:*)",
+      "Bash(tree:*)",
+      "Bash(chmod:*)",
+      "Bash(npm run compile-skills:*)",
+      "Bash(bash)",
+      "Bash(ln:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

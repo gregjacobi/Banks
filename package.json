@@ -22,7 +22,8 @@
     "download-all": "node scripts/downloadCallReports.js 2023-Q1 2025-Q2",
     "import-data": "node scripts/importAllQuarters.js",
     "reimport-data": "node scripts/reimportAllZips.js",
-    "setup-data": "npm run download-all && npm run import-data"
+    "setup-data": "npm run download-all && npm run import-data",
+    "compile-skills": "node scripts/compile-skills.js"
   },
   "keywords": [
     "banking",

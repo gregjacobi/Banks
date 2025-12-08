@@ -1,0 +1,1 @@
+../../../.claude/shared/logging-client.js

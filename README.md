@@ -116,12 +116,22 @@ git push -u origin main
 
 ## Available Scripts
 
+### Development
 - `npm run dev` - Run both frontend and backend concurrently
 - `npm run server` - Run backend only (with nodemon)
 - `npm run client` - Run frontend only
 - `npm start` - Run backend in production mode
 - `npm run build` - Build frontend for production
 - `npm run install-all` - Install all dependencies
+
+### Claude Code Skills
+- `npm run compile-skills` - Compile all skills from `skill-dev/` to `.claude/skills/` and create distribution packages
+- `npm run compile-skills <skill-name>` - Compile a specific skill
+
+**Skills Workflow:**
+1. Develop skills in `skill-dev/<skill-name>/` (requires `SKILL.md`)
+2. Run `npm run compile-skills` to install and package
+3. Find packages in `skill-packages/` for distribution
 
 ## API Endpoints
 

@@ -3,6 +3,19 @@
 ## Project Overview
 Bank Explorer - Financial statement analysis app for banks and credit unions using FDIC Call Reports, UBPR data, and PDF analysis.
 
+## 📚 Documentation
+
+All project documentation is organized in the [`/docs/`](docs/) directory. See [Documentation Index](docs/INDEX.md) for complete navigation.
+
+**Quick Links:**
+- **Skills:** [Commercial lending skills](docs/skills/) (credit memo creation, analyst review)
+- **Features:** [Feature documentation](docs/features/) (source selection, citations, logos, etc.)
+- **Setup:** [Deployment and configuration](docs/setup/) guides
+- **Main README:** [Project README](README.md)
+
+**Recent Updates (2025-12-03):**
+- **CI Credit Memo Skill Improvements:** Added memo detail levels, smart defaults, assumption tracking, and interactive review checkpoints. See [SKILL_IMPROVEMENTS_SUMMARY.md](SKILL_IMPROVEMENTS_SUMMARY.md) for details.
+
 ## Design System
 
 This project uses shadcn/ui components with Tailwind CSS and Anthropic branding.
@@ -39,6 +52,40 @@ import { Search, TrendingUp, Download, X } from "lucide-react"
 4. **Maintain 4px/8px spacing rhythm**
 
 ## Important Development Notes
+
+### Claude Code Skills Development
+
+This project uses Claude Code skills for specialized banking tasks (e.g., credit memo generation, analyst review). Skills are organized as follows:
+
+**Directory Structure:**
+- `skill-dev/` - Active skill development (tracked in git)
+- `.claude/skills/` - Installed skills that Claude Code uses (tracked in git)
+- `skill-packages/` - Compiled .zip packages for distribution (gitignored)
+
+**Skill Development Workflow:**
+
+1. **Develop skills** in `skill-dev/<skill-name>/`
+   - Each skill must have a `SKILL.md` file
+   - Add supporting resources in `resources/` subdirectory
+
+2. **Compile skills** when ready to use or distribute:
+   ```bash
+   # Compile all skills in skill-dev/
+   npm run compile-skills
+
+   # Compile specific skill
+   npm run compile-skills credit-analyst-skill
+   ```
+
+3. **What compile does:**
+   - Installs skill to `.claude/skills/` (for local use)
+   - Creates `.zip` package in `skill-packages/` (for distribution)
+
+4. **Distribute skills:**
+   - Share the `.zip` file from `skill-packages/`
+   - Recipients can unzip and install to their `.claude/skills/`
+
+**Important:** Never develop directly in `.claude/skills/`. Always work in `skill-dev/` and compile when ready.
 
 ### Nodemon Configuration Issue (Fixed: 2025-11-01)
 

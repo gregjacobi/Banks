@@ -38,3 +38,10 @@ Thumbs.db
 
 # MongoDB
 data/
+
+# Claude Code - Personal Settings
+.claude/settings.local.json
+
+# Claude Code - Skill Development (temp directories only)
+*-skill/
+skill-packages/
