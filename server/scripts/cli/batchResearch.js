@@ -52,7 +52,7 @@ if (isProduction) {
 }
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bankexplorer';
-const API_BASE = 'http://localhost:5001/api';
+const API_BASE = process.env.API_BASE || (isProduction ? 'https://bank-explorer-app-1a03f2c2e57a.herokuapp.com/api' : 'http://localhost:5000/api');
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -418,21 +418,68 @@ async function runPhase3ForBank(bank, sessionId, log, existingArtifacts = {}) {
     log.info('Step 3: Generating presentation...');
     // Extract timestamp from report (e.g., "2025-11-21T14:44:14.385Z" -> epoch ms)
     const reportTimestamp = finalReportData?.generatedAt ? new Date(finalReportData.generatedAt).getTime() : null;
+
+    // Presentation endpoint now uses SSE streaming - we need to handle the stream
     const presentationResponse = await axios.post(
       `${API_BASE}/research/${bank.idrssd}/presentation/generate`,
       { reportTimestamp },
-      { timeout: 180000 } // 3 minute timeout
+      {
+        timeout: 180000, // 3 minute timeout
+        responseType: 'stream' // Handle SSE stream
+      }
     );
 
-    presentationGenerated = presentationResponse.data?.success || false;
-    if (!presentationGenerated) {
-      presentationError = presentationResponse.data?.error || 'Unknown error';
-      log.warn(`Presentation generation failed: ${presentationError}`);
-    } else {
-      log.info('Presentation generated successfully');
-    }
+    // Parse SSE stream to get final result
+    await new Promise((resolve, reject) => {
+      let buffer = '';
+      let lastStage = '';
+
+      presentationResponse.data.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+
+              if (data.stage === 'loading' || data.stage === 'generating' || data.stage === 'saving') {
+                lastStage = data.stage;
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'complete') {
+                presentationGenerated = true;
+                log.info('Presentation generated successfully');
+                resolve();
+              } else if (data.stage === 'error') {
+                presentationError = data.message;
+                reject(new Error(data.message));
+              }
+            } catch (parseError) {
+              // Ignore parse errors for heartbeat or malformed lines
+            }
+          }
+        }
+      });
+
+      presentationResponse.data.on('end', () => {
+        if (!presentationGenerated) {
+          presentationError = 'Stream ended without completion';
+          reject(new Error(presentationError));
+        } else {
+          resolve();
+        }
+      });
+
+      presentationResponse.data.on('error', (err) => {
+        presentationError = err.message;
+        reject(err);
+      });
+    });
   } catch (error) {
-    presentationError = error.response?.data?.error || error.response?.data?.message || error.message;
+    if (!presentationError) {
+      presentationError = error.response?.data?.error || error.response?.data?.message || error.message;
+    }
     log.warn(`Presentation generation failed: ${presentationError}`);
   }
 
