@@ -2181,10 +2181,39 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
     const errorMessage = error.message || '';
     let userFriendlyMessage = `Error: ${errorMessage}`;
 
-    if (errorMessage.includes('quota') || errorMessage.includes('credit') ||
+    // Try to parse ElevenLabs error body for quota information
+    let quotaDetails = null;
+    try {
+      // Check if error message contains JSON body
+      const bodyMatch = errorMessage.match(/Body:\s*({[\s\S]*})/);
+      if (bodyMatch) {
+        const body = JSON.parse(bodyMatch[1]);
+        if (body.detail?.status === 'quota_exceeded' && body.detail?.message) {
+          quotaDetails = body.detail.message;
+        }
+      }
+    } catch (parseError) {
+      // Failed to parse error body, continue with basic error handling
+    }
+
+    // Check for quota/credit errors
+    if (quotaDetails ||
+        errorMessage.includes('quota') || errorMessage.includes('credit') ||
         errorMessage.includes('exceeded') || errorMessage.includes('insufficient') ||
         error.response?.status === 401 || error.response?.status === 402) {
-      userFriendlyMessage = 'ElevenLabs API quota exceeded or insufficient credits. Please check your ElevenLabs account and add credits to continue generating podcasts.';
+
+      if (quotaDetails) {
+        // Extract credits remaining and required from the quota message
+        const remainingMatch = quotaDetails.match(/You have (\d+) credits remaining/);
+        const requiredMatch = quotaDetails.match(/(\d+) credits are required/);
+
+        const remaining = remainingMatch ? remainingMatch[1] : 'unknown';
+        const required = requiredMatch ? requiredMatch[1] : 'unknown';
+
+        userFriendlyMessage = `ElevenLabs quota exceeded: You have ${remaining} credits remaining, but ${required} credits are required for this podcast. Please add credits to your ElevenLabs account to continue.`;
+      } else {
+        userFriendlyMessage = 'ElevenLabs API quota exceeded or insufficient credits. Please check your ElevenLabs account and add credits to continue generating podcasts.';
+      }
     }
 
     res.write(`data: ${JSON.stringify({
