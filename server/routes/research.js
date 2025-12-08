@@ -569,12 +569,33 @@ router.get('/:idrssd/generate-agent', async (req, res) => {
       }
     };
 
+    // Heartbeat to prevent Heroku H15 idle connection timeout (55 seconds)
+    // Send a comment line every 30 seconds to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+        if (res.socket && res.socket.writable) {
+          res.socket.uncork();
+        }
+      } catch (err) {
+        console.error('[Heartbeat] Error:', err.message);
+        clearInterval(heartbeatInterval);
+      }
+    }, 30000); // 30 seconds
+
+    // Clean up heartbeat on connection close
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      console.log('[Agent] Client disconnected, heartbeat stopped');
+    });
+
     // Step 1: Fetch bank information
     sendStatus('init', 'Initializing agent research system...');
 
     const institution = await Institution.findOne({ idrssd });
     if (!institution) {
       sendStatus('error', 'Bank not found');
+      clearInterval(heartbeatInterval);
       res.end();
       return;
     }
@@ -588,6 +609,7 @@ router.get('/:idrssd/generate-agent', async (req, res) => {
 
     if (financialStatements.length === 0) {
       sendStatus('error', 'No financial data found for this bank');
+      clearInterval(heartbeatInterval);
       res.end();
       return;
     }
@@ -1281,6 +1303,7 @@ Write in a professional, analytical tone suitable for investors and executives. 
       fileName
     });
 
+    clearInterval(heartbeatInterval);
     res.end();
 
   } catch (error) {
@@ -1289,6 +1312,7 @@ Write in a professional, analytical tone suitable for investors and executives. 
       stage: 'error',
       message: `Error: ${error.message}`
     })}\n\n`);
+    clearInterval(heartbeatInterval);
     res.end();
   }
 });
