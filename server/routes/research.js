@@ -4985,58 +4985,25 @@ router.get('/:idrssd/status', async (req, res) => {
 router.get('/:idrssd/history', async (req, res) => {
   try {
     const { idrssd } = req.params;
-    const history = [];
+    const ResearchReport = require('../models/ResearchReport');
 
-    try {
-      // Query GridFS for this bank's agent reports
-      const bucket = getDocumentBucket();
-      const files = await listFilesInGridFS(bucket, {
-        filename: { $regex: `^${idrssd}_agent_.*\\.json$` }
-      });
+    // Query MongoDB ResearchReport collection
+    const reports = await ResearchReport.find({ idrssd })
+      .sort({ createdAt: -1 })
+      .select('reportData.generatedAt reportData.method reportData.model reportData.bankName createdAt')
+      .lean();
 
-      console.log(`[History] Found ${files.length} GridFS files for bank ${idrssd}`);
+    console.log(`[History] Found ${reports.length} reports for bank ${idrssd}`);
 
-      // Extract timestamps and create history entries
-      for (const file of files) {
-        const timestampMatch = file.filename.match(/_agent_(\d+)\.json$/);
-        if (timestampMatch) {
-          const timestamp = timestampMatch[1];
-
-          try {
-            // Load file from GridFS to get metadata
-            const reportData = await loadJsonFromGridFSById(bucket, file._id);
-
-            history.push({
-              timestamp: parseInt(timestamp),
-              generatedAt: reportData.generatedAt || new Date(parseInt(timestamp)).toISOString(),
-              method: reportData.method || 'agent-based',
-              model: reportData.model || 'unknown',
-              hasAnalysis: !!reportData.analysis,
-              bankName: reportData.bankName
-            });
-          } catch (fileError) {
-            console.error(`[History] Error reading GridFS file ${file.filename}:`, fileError.message);
-            // Still add entry even if we can't read the file
-            history.push({
-              timestamp: parseInt(timestamp),
-              generatedAt: new Date(parseInt(timestamp)).toISOString(),
-              method: 'agent-based',
-              model: 'unknown',
-              hasAnalysis: true
-            });
-          }
-        }
-      }
-
-      // Sort by timestamp descending (newest first)
-      history.sort((a, b) => b.timestamp - a.timestamp);
-
-      console.log(`[History] Returning ${history.length} reports for bank ${idrssd}`);
-
-    } catch (gridfsError) {
-      // No reports found or GridFS error
-      console.log(`[History] GridFS query error or no reports found:`, gridfsError.message);
-    }
+    // Format history entries
+    const history = reports.map(report => ({
+      timestamp: new Date(report.createdAt).getTime(),
+      generatedAt: report.reportData?.generatedAt || report.createdAt.toISOString(),
+      method: report.reportData?.method || 'agent-based',
+      model: report.reportData?.model || 'unknown',
+      hasAnalysis: !!report.reportData?.analysis,
+      bankName: report.reportData?.bankName
+    }));
 
     res.json({
       success: true,
