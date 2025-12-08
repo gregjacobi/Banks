@@ -28,8 +28,8 @@ const {
 } = require('../utils/gridfsHelpers');
 
 // Helper functions to get buckets (lazy access after GridFS initialization)
-const getDocumentBucket = () => gridfs.getDocumentBucket();
-const getAudioBucket = () => gridfs.getAudioBucket();
+const getDocumentBucket = () => gridfs.documentBucket;
+const getAudioBucket = () => gridfs.audioBucket;
 
 // Initialize services
 const claudeService = new ClaudeService();
