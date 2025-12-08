@@ -250,19 +250,22 @@ async function findLogoForBank(bank) {
   const logoTypes = ['logo', 'symbol', 'icon'];
   const formats = ['svg', 'png'];
 
-  log.step(2, 'Searching Brandfetch for logo');
-  let foundLogo = null;
+  log.step(2, 'Searching Brandfetch for all logo variants');
+  const foundLogos = {}; // Store all found variants: { logo: {...}, symbol: {...}, icon: {...} }
   let attemptedUrls = [];
+  let workingDomain = null; // Track which domain works
 
   // Try each domain variation
   for (const domain of domainVariations) {
-    if (foundLogo) break;
+    if (workingDomain) break; // Once we find a working domain, stop trying others
 
     log.info(`Trying domain: ${domain}`);
+    let foundAnyForDomain = false;
 
     // Try each logo type and format
     for (const logoType of logoTypes) {
-      if (foundLogo) break;
+      // Skip if we already found this variant
+      if (foundLogos[logoType]) continue;
 
       for (const format of formats) {
         const result = await tryBrandfetchDomain(domain, logoType, format);
@@ -274,26 +277,46 @@ async function findLogoForBank(bank) {
         });
 
         if (result.success) {
-          log.success(`✓ Found logo: ${domain}/${logoType}.${format}`);
-          log.debug('Logo details', {
+          log.success(`✓ Found ${logoType}: ${domain}/${logoType}.${format}`);
+          log.debug(`${logoType} details`, {
             domain,
             logoType,
             format,
             size: `${(result.size / 1024).toFixed(2)} KB`,
             contentType: result.contentType
           });
-          foundLogo = result;
-          break;
+          foundLogos[logoType] = result;
+          foundAnyForDomain = true;
+          workingDomain = domain;
+          break; // Found this variant, try next logoType
         } else {
           log.debug(`✗ ${domain}/${logoType}.${format} - ${result.status || result.error}`);
         }
       }
     }
+
+    // If we found at least one variant for this domain, try to get the remaining ones
+    if (foundAnyForDomain) {
+      for (const logoType of logoTypes) {
+        if (foundLogos[logoType]) continue; // Already have this one
+
+        for (const format of formats) {
+          const result = await tryBrandfetchDomain(domain, logoType, format);
+          if (result.success) {
+            log.success(`✓ Found ${logoType}: ${domain}/${logoType}.${format}`);
+            foundLogos[logoType] = result;
+            break;
+          }
+        }
+      }
+      break; // Stop trying other domains
+    }
   }
 
   log.debug('All attempted URLs', attemptedUrls);
+  log.info(`Found ${Object.keys(foundLogos).length} logo variant(s): ${Object.keys(foundLogos).join(', ')}`);
 
-  if (!foundLogo) {
+  if (Object.keys(foundLogos).length === 0) {
     log.section('❌ NO LOGO FOUND');
     log.error(`Tried ${attemptedUrls.length} different URL combinations`);
     log.debug('Failed attempts summary', {
@@ -310,6 +333,144 @@ async function findLogoForBank(bank) {
     };
   }
 
+  // NEW VARIANT-BASED PROCESSING
+  log.step(3, `Processing and uploading ${Object.keys(foundLogos).length} logo variant(s)`);
+
+  const { imageBucket } = require('../../config/gridfs');
+  const BankLogo = require('../../models/BankLogo');
+
+  const uploadedVariants = {};
+  const uploadResults = [];
+
+  // Process each found variant
+  for (const [variantType, variantData] of Object.entries(foundLogos)) {
+    try {
+      log.section(`📦 ${variantType.toUpperCase()} VARIANT`);
+      log.info(`URL: ${variantData.url}`);
+      log.info(`Format: ${variantData.format}, Size: ${(variantData.size / 1024).toFixed(2)} KB`);
+
+      // Validate file size
+      const fileSizeKB = variantData.size / 1024;
+      if (fileSizeKB < 0.5) {
+        throw new Error(`File too small (${fileSizeKB.toFixed(2)} KB)`);
+      }
+      if (fileSizeKB > 5000) {
+        log.warning(`File very large (${fileSizeKB.toFixed(2)} KB)`);
+      }
+
+      // Validate content type
+      const validTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+      if (!variantData.contentType || !validTypes.some(type => variantData.contentType.includes(type))) {
+        throw new Error(`Invalid content type: ${variantData.contentType}`);
+      }
+
+      // Check for error page content
+      const buffer = Buffer.from(variantData.data);
+      const textContent = buffer.toString('utf8', 0, Math.min(500, buffer.length)).toLowerCase();
+      const errorIndicators = ['404', 'not found', 'error', 'access denied', 'forbidden'];
+      if (errorIndicators.some(indicator => textContent.includes(indicator))) {
+        throw new Error('Downloaded file contains error page content');
+      }
+
+      log.success('✓ Validation passed');
+
+      // Upload to GridFS
+      const ext = `.${variantData.format}`;
+      const filename = `${bank.idrssd}-${variantType}${ext}`;
+
+      // Delete existing variant if it exists
+      const existingLogo = await BankLogo.findOne({ idrssd: bank.idrssd, variant: variantType });
+      if (existingLogo) {
+        log.info(`Deleting existing ${variantType} logo`);
+        await existingLogo.deleteFile();
+      }
+
+      const uploadStream = imageBucket.openUploadStream(filename, {
+        contentType: variantData.contentType,
+        metadata: {
+          idrssd: bank.idrssd,
+          bankName: bank.name,
+          source: `Brandfetch (${variantData.domain})`,
+          logoType: variantType,
+          uploadedAt: new Date()
+        }
+      });
+
+      uploadStream.end(buffer);
+
+      await new Promise((resolve, reject) => {
+        uploadStream.on('finish', resolve);
+        uploadStream.on('error', reject);
+      });
+
+      log.success(`✓ Uploaded to GridFS (file ID: ${uploadStream.id})`);
+
+      // Create BankLogo record
+      await BankLogo.findOneAndUpdate(
+        { idrssd: bank.idrssd, variant: variantType },
+        {
+          idrssd: bank.idrssd,
+          variant: variantType,
+          gridfsFileId: uploadStream.id,
+          filename: filename,
+          contentType: variantData.contentType,
+          fileSize: variantData.size,
+          source: `Brandfetch (${variantData.domain})`
+        },
+        { upsert: true, new: true }
+      );
+
+      log.success(`✓ Created BankLogo record for ${variantType}`);
+
+      uploadedVariants[variantType] = {
+        url: variantData.url,
+        gridfsFileId: uploadStream.id.toString(),
+        size: variantData.size
+      };
+
+      uploadResults.push({
+        variant: variantType,
+        success: true,
+        gridfsFileId: uploadStream.id.toString()
+      });
+
+    } catch (error) {
+      log.error(`✗ Failed to process ${variantType}: ${error.message}`);
+      uploadResults.push({
+        variant: variantType,
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  // Update metadata with logo info
+  if (uploadedVariants.logo || uploadedVariants.symbol || uploadedVariants.icon) {
+    const primaryVariant = uploadedVariants.logo || uploadedVariants.symbol || uploadedVariants.icon;
+    await metadata.updateLogo({
+      url: primaryVariant.url,
+      source: `Brandfetch (${workingDomain})`,
+      symbolUrl: (uploadedVariants.symbol || uploadedVariants.icon || uploadedVariants.logo)?.url
+    });
+    log.success('✓ Updated BankMetadata');
+  }
+
+  log.section('✅ LOGO IMPORT COMPLETE');
+  log.info(`Successfully uploaded: ${uploadResults.filter(r => r.success).map(r => r.variant).join(', ')}`);
+  if (uploadResults.some(r => !r.success)) {
+    log.warning(`Failed: ${uploadResults.filter(r => !r.success).map(r => r.variant).join(', ')}`);
+  }
+
+  return {
+    success: true,
+    variants: uploadedVariants,
+    uploadResults
+  };
+
+  /* OLD SINGLE-LOGO PROCESSING CODE - COMMENTED OUT
+  // This old code is kept for reference but is no longer executed
+  // It has been replaced by the new variant-based processing above
+  /*
   log.step(3, 'Logo found! Preparing for validation');
   log.success(`Logo URL: ${foundLogo.url}`);
   log.info(`Source: Brandfetch (${foundLogo.domain})`);
@@ -420,10 +581,10 @@ async function findLogoForBank(bank) {
     const { imageBucket } = require('../../config/gridfs');
     const BankLogo = require('../../models/BankLogo');
 
-    // Check if logo already exists for this bank
-    const existingLogo = await BankLogo.findOne({ idrssd: bank.idrssd });
+    // Check if this variant already exists for this bank
+    const existingLogo = await BankLogo.findOne({ idrssd: bank.idrssd, variant: logoData.logoType });
     if (existingLogo) {
-      log.info('Deleting existing logo from GridFS');
+      log.info(`Deleting existing ${logoData.logoType} logo from GridFS`);
       await existingLogo.deleteFile();
     }
 
@@ -447,12 +608,13 @@ async function findLogoForBank(bank) {
 
     log.success(`Logo uploaded to GridFS with file ID: ${uploadStream.id}`);
 
-    // Create or update BankLogo record
+    // Create or update BankLogo record with variant
     log.step(7, 'Creating BankLogo record');
     await BankLogo.findOneAndUpdate(
-      { idrssd: bank.idrssd },
+      { idrssd: bank.idrssd, variant: logoData.logoType },
       {
         idrssd: bank.idrssd,
+        variant: logoData.logoType,
         gridfsFileId: uploadStream.id,
         filename: filename,
         contentType: logoData.contentType,
@@ -542,6 +704,21 @@ async function findLogoForBank(bank) {
         log.success(`Symbol logo uploaded to GridFS with file ID: ${symbolUploadStream.id}`);
         symbolGridfsFileId = symbolUploadStream.id;
 
+        // Create or update BankLogo record for symbol variant
+        await BankLogo.findOneAndUpdate(
+          { idrssd: bank.idrssd, variant: 'icon' },  // Using 'icon' as variant name per Brandfetch API
+          {
+            idrssd: bank.idrssd,
+            variant: 'icon',
+            gridfsFileId: symbolGridfsFileId,
+            filename: symbolFilename,
+            contentType: symbolContentType,
+            fileSize: symbolLogoData.size,
+            source: symbolLogoData.source
+          },
+          { upsert: true, new: true }
+        );
+
         // Update metadata with symbol GridFS file ID
         log.step(11, 'Updating database with validated symbol logo');
         await metadata.updateLogo({
@@ -599,6 +776,8 @@ async function findLogoForBank(bank) {
 
     return { success: false, error: validationError.message, validationFailed: true };
   }
+  */
+  // END OF OLD CODE
 }
 
 async function listBanksWithLogos() {

@@ -5625,15 +5625,15 @@ router.post('/:idrssd/pdfs/:pdfId/reprocess', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/logo
- * Get bank logo from GridFS
+ * Get bank full logo from GridFS (variant: 'logo')
  */
 router.get('/:idrssd/logo', async (req, res) => {
   try {
     const { idrssd } = req.params;
     const BankLogo = require('../models/BankLogo');
 
-    // Find logo in GridFS
-    const logo = await BankLogo.findOne({ idrssd });
+    // Find full logo variant
+    const logo = await BankLogo.getForBank(idrssd, 'logo');
 
     if (!logo) {
       return res.status(404).json({ error: 'Logo not found' });
@@ -5665,22 +5665,25 @@ router.get('/:idrssd/logo', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/logo-symbol
- * Get bank logo symbol from GridFS (falls back to regular logo if symbol not available)
+ * Get bank symbol logo from GridFS (variant: 'symbol')
+ * Falls back to icon, then full logo if symbol not available
  */
 router.get('/:idrssd/logo-symbol', async (req, res) => {
   try {
     const { idrssd } = req.params;
     const BankLogo = require('../models/BankLogo');
 
-    // Try to find symbol logo first (filename contains -symbol)
-    let logo = await BankLogo.findOne({
-      idrssd,
-      filename: { $regex: /-symbol\./i }
-    });
+    // Try to find symbol logo first
+    let logo = await BankLogo.getForBank(idrssd, 'symbol');
 
-    // If no symbol found, fall back to regular logo
+    // Fall back to icon if symbol not found
     if (!logo) {
-      logo = await BankLogo.findOne({ idrssd });
+      logo = await BankLogo.getForBank(idrssd, 'icon');
+    }
+
+    // Fall back to full logo if neither symbol nor icon found
+    if (!logo) {
+      logo = await BankLogo.getForBank(idrssd, 'logo');
     }
 
     if (!logo) {
@@ -5706,6 +5709,57 @@ router.get('/:idrssd/logo-symbol', async (req, res) => {
     console.error('[Get Logo Symbol] Error:', error);
     res.status(500).json({
       error: 'Failed to get logo symbol',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/research/:idrssd/logo-icon
+ * Get bank icon logo from GridFS (variant: 'icon')
+ * Falls back to symbol, then full logo if icon not available
+ */
+router.get('/:idrssd/logo-icon', async (req, res) => {
+  try {
+    const { idrssd } = req.params;
+    const BankLogo = require('../models/BankLogo');
+
+    // Try to find icon logo first
+    let logo = await BankLogo.getForBank(idrssd, 'icon');
+
+    // Fall back to symbol if icon not found
+    if (!logo) {
+      logo = await BankLogo.getForBank(idrssd, 'symbol');
+    }
+
+    // Fall back to full logo if neither icon nor symbol found
+    if (!logo) {
+      logo = await BankLogo.getForBank(idrssd, 'logo');
+    }
+
+    if (!logo) {
+      return res.status(404).json({ error: 'Logo not found' });
+    }
+
+    // Set content type header
+    res.setHeader('Content-Type', logo.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+
+    // Stream logo from GridFS
+    const readStream = logo.getReadStream();
+    readStream.pipe(res);
+
+    readStream.on('error', (err) => {
+      console.error('[Get Logo Icon] Stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream logo' });
+      }
+    });
+
+  } catch (error) {
+    console.error('[Get Logo Icon] Error:', error);
+    res.status(500).json({
+      error: 'Failed to get logo icon',
       details: error.message
     });
   }

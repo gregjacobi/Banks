@@ -4,14 +4,25 @@ const mongoose = require('mongoose');
  * Bank Logo Model
  * Stores metadata for bank logo images in GridFS
  * Logo files themselves are stored in 'images' GridFS bucket
- * Previously stored as image files in /server/data/logos/
+ *
+ * Supports three Brandfetch logo variants per bank:
+ * - 'logo': Full brand logo (horizontal/wide format)
+ * - 'symbol': Standalone mark/emblem without text
+ * - 'icon': Compact symbol-like representation
  */
 const bankLogoSchema = new mongoose.Schema({
-  // Bank identifier (unique - one logo per bank)
+  // Bank identifier
   idrssd: {
     type: String,
     required: true,
-    unique: true,
+    index: true
+  },
+
+  // Logo variant type (logo, symbol, icon)
+  variant: {
+    type: String,
+    required: true,
+    enum: ['logo', 'symbol', 'icon'],
     index: true
   },
 
@@ -27,7 +38,7 @@ const bankLogoSchema = new mongoose.Schema({
     required: true
   },
 
-  // Content type (image/png, image/jpeg, image/svg+xml)
+  // Content type (image/png, image/jpeg, image/svg+xml, image/webp)
   contentType: {
     type: String,
     required: true
@@ -54,6 +65,9 @@ const bankLogoSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Compound unique index: one of each variant per bank
+bankLogoSchema.index({ idrssd: 1, variant: 1 }, { unique: true });
 
 // Instance methods
 
@@ -89,17 +103,28 @@ bankLogoSchema.methods.deleteFile = async function() {
 // Static methods
 
 /**
- * Get logo for a bank
+ * Get logo for a bank by variant
+ * @param {string} idrssd - Bank ID
+ * @param {string} variant - Logo variant ('logo', 'symbol', 'icon')
  */
-bankLogoSchema.statics.getForBank = function(idrssd) {
-  return this.findOne({ idrssd });
+bankLogoSchema.statics.getForBank = function(idrssd, variant = 'logo') {
+  return this.findOne({ idrssd, variant });
 };
 
 /**
- * Check if logo exists for a bank
+ * Get all logo variants for a bank
+ * @param {string} idrssd - Bank ID
  */
-bankLogoSchema.statics.existsForBank = async function(idrssd) {
-  const count = await this.countDocuments({ idrssd });
+bankLogoSchema.statics.getAllVariantsForBank = function(idrssd) {
+  return this.find({ idrssd });
+};
+
+/**
+ * Check if logo exists for a bank (any variant)
+ */
+bankLogoSchema.statics.existsForBank = async function(idrssd, variant = null) {
+  const query = variant ? { idrssd, variant } : { idrssd };
+  const count = await this.countDocuments(query);
   return count > 0;
 };
 

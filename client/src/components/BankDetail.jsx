@@ -284,42 +284,40 @@ function BankDetail() {
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              {metadata?.logo?.localPath && (
-                institution.website ? (
-                  <a
-                    href={institution.website.startsWith('http') ? institution.website : `https://${institution.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ display: 'flex', alignItems: 'center' }}
-                  >
-                    <img
-                      src={`http://localhost:5001/api/research/${idrssd}/logo`}
-                      alt={`${institution.name} logo`}
-                      style={{
-                        height: '48px',
-                        maxWidth: '120px',
-                        objectFit: 'contain',
-                        cursor: 'pointer'
-                      }}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
-                  </a>
-                ) : (
+              {institution.website ? (
+                <a
+                  href={institution.website.startsWith('http') ? institution.website : `https://${institution.website}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'center' }}
+                >
                   <img
-                    src={`http://localhost:5001/api/research/${idrssd}/logo`}
+                    src={`/api/research/${idrssd}/logo`}
                     alt={`${institution.name} logo`}
                     style={{
                       height: '48px',
-                      maxWidth: '120px',
-                      objectFit: 'contain'
+                      maxWidth: '200px',
+                      objectFit: 'contain',
+                      cursor: 'pointer'
                     }}
                     onError={(e) => {
                       e.target.style.display = 'none';
                     }}
                   />
-                )
+                </a>
+              ) : (
+                <img
+                  src={`/api/research/${idrssd}/logo`}
+                  alt={`${institution.name} logo`}
+                  style={{
+                    height: '48px',
+                    maxWidth: '200px',
+                    objectFit: 'contain'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                  }}
+                />
               )}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {institution.website ? (
@@ -340,10 +338,10 @@ function BankDetail() {
                 )}
                 {/* Status Badge Icons */}
                 <Box sx={{ display: 'flex', gap: 0.5, ml: 1 }}>
-                  {/* Mini Logo Badge */}
-                  {metadata?.logo?.localPath && (
+                  {/* Mini Logo Badge - removed, logo already displayed above */}
+                  {false && metadata?.logo?.localPath && (
                     <img
-                      src={`http://localhost:5001/api/research/${idrssd}/logo`}
+                      src={`/api/research/${idrssd}/logo`}
                       alt="Logo"
                       title="Bank logo available"
                       style={{
