@@ -5535,33 +5535,36 @@ router.get('/:idrssd/gather-metadata', async (req, res) => {
 
 /**
  * GET /api/research/:idrssd/report/:timestamp
- * Get a specific research report
+ * Get a specific research report from MongoDB
  */
 router.get('/:idrssd/report/:timestamp', async (req, res) => {
   try {
     const { idrssd, timestamp } = req.params;
+    const ResearchReport = require('../models/ResearchReport');
 
-    // Build report filename
-    const filename = `${idrssd}_agent_${timestamp}.json`;
+    console.log(`[Get Report] Querying MongoDB for bank ${idrssd}, timestamp ${timestamp}`);
 
-    try {
-      // Read report from GridFS
-      const reportData = await loadJsonFromGridFS(getDocumentBucket(), filename);
+    // Query MongoDB ResearchReport collection by timestamp (createdAt)
+    const report = await ResearchReport.findOne({
+      idrssd,
+      createdAt: new Date(parseInt(timestamp))
+    }).lean();
 
-      console.log(`[Get Report] Loaded report for bank ${idrssd}, timestamp ${timestamp}`);
-
-      res.json({
-        success: true,
-        report: reportData
-      });
-    } catch (fileError) {
-      console.log(`[Get Report] Report not found: ${filename}`);
-      res.status(404).json({
+    if (!report) {
+      console.log(`[Get Report] Report not found for bank ${idrssd} at timestamp ${timestamp}`);
+      return res.status(404).json({
         success: false,
         error: 'Report not found',
         details: `No report exists for bank ${idrssd} at timestamp ${timestamp}`
       });
     }
+
+    console.log(`[Get Report] Loaded report for bank ${idrssd}, timestamp ${timestamp}`);
+
+    res.json({
+      success: true,
+      report: report.reportData
+    });
   } catch (error) {
     console.error('[Get Report] Error:', error);
     res.status(500).json({
