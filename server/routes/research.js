@@ -2079,28 +2079,21 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
       }
     };
 
-    // Step 1: Load existing research report
+    // Step 1: Load existing research report from MongoDB
     sendStatus('loading', 'Loading research report...');
 
-    const files = await listFilesInGridFS(getDocumentBucket(), {
-      filename: { $regex: `^${idrssd}_.*\\.json$` }
-    });
-    const bankReports = files.map(f => f.filename);
+    const ResearchReport = require('../models/ResearchReport');
+    const latestReport = await ResearchReport.findOne({ idrssd })
+      .sort({ createdAt: -1 })
+      .lean();
 
-    if (bankReports.length === 0) {
+    if (!latestReport) {
       sendStatus('error', 'No research report found. Please generate a report first.');
       res.end();
       return;
     }
 
-    // Get most recent report
-    bankReports.sort((a, b) => {
-      const timeA = parseInt(a.split('_')[1].split('.')[0]);
-      const timeB = parseInt(b.split('_')[1].split('.')[0]);
-      return timeB - timeA;
-    });
-
-    const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
+    const reportData = latestReport.reportData;
 
     // Step 2: Generate podcast script
     sendStatus('script', 'Bankskie is preparing the show script...');
@@ -5792,9 +5785,18 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
 
     console.log(`[Presentation] Generating for bank ${idrssd}, report timestamp: ${reportTimestamp}`);
 
-    // Load report file from GridFS
-    const filename = `${idrssd}_agent_${reportTimestamp}.json`;
-    const reportData = await loadJsonFromGridFS(getDocumentBucket(), filename);
+    // Load report from MongoDB ResearchReport collection
+    const ResearchReport = require('../models/ResearchReport');
+    const report = await ResearchReport.findOne({
+      idrssd,
+      createdAt: new Date(parseInt(reportTimestamp))
+    }).lean();
+
+    if (!report) {
+      throw new Error(`Report not found for bank ${idrssd} at timestamp ${reportTimestamp}`);
+    }
+
+    const reportData = report.reportData;
 
     // Check if presentation already exists for this report (in GridFS)
     if (reportData.presentation && reportData.presentation.filename) {
@@ -5831,14 +5833,19 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
     const presentationService = new PresentationService();
     const result = await presentationService.generatePresentation(idrssd, reportData);
 
-    // Update report with presentation metadata
+    // Update report with presentation metadata in MongoDB
     reportData.presentation = {
       filename: result.filename,
       generatedAt: new Date().toISOString(),
       slideCount: result.slideCount
     };
-    // Save updated report back to GridFS
-    await saveJsonToGridFS(getDocumentBucket(), filename, reportData, { idrssd, type: 'research', updated: true });
+
+    // Save updated report back to MongoDB
+    await ResearchReport.updateOne(
+      { _id: report._id },
+      { $set: { 'reportData.presentation': reportData.presentation } }
+    );
+    console.log(`[Presentation] Updated MongoDB report ${report._id} with presentation metadata`);
 
     // Mark phase4 as completed (phase4 = podcast/presentation outputs)
     try {
