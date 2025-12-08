@@ -5805,14 +5805,43 @@ router.get('/:idrssd/logo-icon', async (req, res) => {
 
 /**
  * POST /api/research/:idrssd/presentation/generate
- * Generate HTML presentation from research report
+ * Generate HTML presentation from research report (SSE stream)
  */
 router.post('/:idrssd/presentation/generate', async (req, res) => {
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendStatus = (stage, message) => {
+    res.write(`data: ${JSON.stringify({ stage, message })}\n\n`);
+  };
+
+  // Heartbeat to prevent Heroku H15 idle connection timeout (55 seconds)
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+      if (res.socket && res.socket.writable) {
+        res.socket.uncork();
+      }
+    } catch (err) {
+      console.error('[Presentation Heartbeat] Error:', err.message);
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000); // 30 seconds
+
+  req.on('close', () => {
+    clearInterval(heartbeatInterval);
+    console.log('[Presentation] Client disconnected, heartbeat stopped');
+  });
+
   try {
     const { idrssd } = req.params;
     const { reportTimestamp } = req.body;
 
     console.log(`[Presentation] Generating for bank ${idrssd}, report timestamp: ${reportTimestamp}`);
+    sendStatus('loading', 'Loading research report...');
 
     // Load report from MongoDB ResearchReport collection
     const ResearchReport = require('../models/ResearchReport');
@@ -5822,7 +5851,10 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
     }).lean();
 
     if (!report) {
-      throw new Error(`Report not found for bank ${idrssd} at timestamp ${reportTimestamp}`);
+      sendStatus('error', `Report not found for bank ${idrssd} at timestamp ${reportTimestamp}`);
+      clearInterval(heartbeatInterval);
+      res.end();
+      return;
     }
 
     const reportData = report.reportData;
@@ -5832,15 +5864,19 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
       const exists = await fileExistsInGridFS(getDocumentBucket(), reportData.presentation.filename);
       if (exists) {
         console.log(`[Presentation] Using existing presentation: ${reportData.presentation.filename}`);
-        return res.json({
-          success: true,
+        sendStatus('complete', 'Presentation already exists');
+        res.write(`data: ${JSON.stringify({
+          stage: 'complete',
           presentation: {
             filename: reportData.presentation.filename,
             url: `/presentations/${idrssd}/${reportData.presentation.filename}`,
             timestamp: reportData.presentation.generatedAt,
             slideCount: reportData.presentation.slideCount
           }
-        });
+        })}\n\n`);
+        clearInterval(heartbeatInterval);
+        res.end();
+        return;
       } else {
         // File doesn't exist, continue with generation
         console.log(`[Presentation] Existing presentation file not found, generating new one`);
@@ -5859,10 +5895,12 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
     }
 
     // Generate presentation
+    sendStatus('generating', 'Analyzing report and creating slides...');
     const presentationService = new PresentationService();
     const result = await presentationService.generatePresentation(idrssd, reportData);
 
     // Update report with presentation metadata in MongoDB
+    sendStatus('saving', 'Saving presentation...');
     reportData.presentation = {
       filename: result.filename,
       generatedAt: new Date().toISOString(),
@@ -5889,10 +5927,14 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
       console.error(`[Presentation] Warning: Failed to update phase status:`, phaseError.message);
     }
 
-    res.json({
-      success: true,
+    sendStatus('complete', 'Presentation generated successfully');
+    res.write(`data: ${JSON.stringify({
+      stage: 'complete',
       presentation: result
-    });
+    })}\n\n`);
+
+    clearInterval(heartbeatInterval);
+    res.end();
 
   } catch (error) {
     console.error('[Presentation] Error generating presentation:', error.message);
@@ -5911,11 +5953,9 @@ router.post('/:idrssd/presentation/generate', async (req, res) => {
       console.error(`[Presentation] Warning: Failed to update phase status:`, phaseError.message);
     }
 
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
-    });
+    sendStatus('error', `Failed to generate presentation: ${error.message}`);
+    clearInterval(heartbeatInterval);
+    res.end();
   }
 });
 

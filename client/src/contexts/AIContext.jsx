@@ -258,7 +258,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
   };
 
   /**
-   * Generate presentation from current report
+   * Generate presentation from current report (SSE)
    */
   const generatePresentation = async () => {
     try {
@@ -270,17 +270,62 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
       setPresentationInProgress(true);
       setPresentationStatus('Generating presentation...');
 
-      const response = await axios.post(`/api/research/${idrssd}/presentation/generate`, {
-        reportTimestamp: selectedReportTimestamp
+      const response = await fetch(`/api/research/${idrssd}/presentation/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reportTimestamp: selectedReportTimestamp
+        })
       });
 
-      if (response.data.success) {
-        setPresentationStatus('');
-        setPresentationInProgress(false);
-        await loadPresentations();
-        // Open presentation in new tab
-        window.open(response.data.presentation.url, '_blank');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let presentationResult = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.substring(6));
+
+            if (data.stage === 'loading') {
+              setPresentationStatus('Loading research report...');
+            } else if (data.stage === 'generating') {
+              setPresentationStatus('Analyzing report and creating slides...');
+            } else if (data.stage === 'saving') {
+              setPresentationStatus('Saving presentation...');
+            } else if (data.stage === 'complete') {
+              if (data.presentation) {
+                presentationResult = data.presentation;
+              }
+              setPresentationStatus('Presentation generated successfully');
+            } else if (data.stage === 'error') {
+              throw new Error(data.message);
+            }
+          }
+        }
+      }
+
+      // Refresh presentations list and open the new one
+      setPresentationInProgress(false);
+      setPresentationStatus('');
+      await loadPresentations();
+
+      if (presentationResult && presentationResult.url) {
+        window.open(presentationResult.url, '_blank');
+      }
+
     } catch (err) {
       console.error('Error generating presentation:', err);
       setError('Failed to generate presentation: ' + err.message);
