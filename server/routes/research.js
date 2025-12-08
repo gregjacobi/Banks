@@ -2688,23 +2688,50 @@ router.get('/:idrssd/gather-sources', async (req, res) => {
 
 /**
  * POST /api/research/:idrssd/gather-sources-batch
- * Batch version of gather-sources (non-SSE, returns when complete)
- * Perfect for CLI tools and scripting
+ * SSE streaming version of gather-sources for CLI tools and scripting
+ * Sends progress updates to prevent Heroku H12/H15 timeouts
  */
 router.post('/:idrssd/gather-sources-batch', async (req, res) => {
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendStatus = (stage, message, data = {}) => {
+    res.write(`data: ${JSON.stringify({ stage, message, ...data })}\n\n`);
+  };
+
+  // Heartbeat to prevent H15 idle connection timeout (55 seconds)
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+      if (res.socket && res.socket.writable) {
+        res.socket.uncork();
+      }
+    } catch (err) {
+      console.error('[Batch Source Gathering Heartbeat] Error:', err.message);
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000); // 30 seconds
   try {
     const { idrssd } = req.params;
     const { sessionId, config } = req.body;
 
     const userConfig = config || {};
 
+    sendStatus('init', 'Initializing source gathering...');
+
     // Get bank info
     const bank = await Institution.findOne({ idrssd });
     if (!bank) {
-      return res.status(404).json({ error: 'Bank not found' });
+      clearInterval(heartbeatInterval);
+      sendStatus('error', 'Bank not found');
+      return res.end();
     }
 
     console.log(`[Batch] Starting source gathering for ${bank.name} (${idrssd})`);
+    sendStatus('starting', `Starting source gathering for ${bank.name}`);
 
     // Generate session ID if not provided
     const sid = sessionId || `batch-${Date.now()}`;
@@ -2720,21 +2747,26 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
     // PHASE 1: Collect sources from all categories (don't save yet)
     const sourcesByCategory = {};
     console.log(`[Batch] Phase 1: Collecting sources from all categories...`);
+    sendStatus('phase1', 'Searching for sources across all categories...');
 
     for (const category of categoriesToSearch) {
       try {
         console.log(`[Batch] Searching ${category} for ${bank.name}...`);
+        sendStatus('searching', `Searching ${category}...`, { category });
         const sources = await searchSourcesForCategory(bank, category);
         sourcesByCategory[category] = sources || [];
         console.log(`[Batch] ${category}: Found ${sources.length} sources`);
+        sendStatus('found', `Found ${sources.length} sources in ${category}`, { category, count: sources.length });
       } catch (error) {
         console.error(`[Batch] Error searching for ${category}:`, error);
         sourcesByCategory[category] = [];
+        sendStatus('error_category', `Error searching ${category}: ${error.message}`, { category });
       }
     }
 
     // PHASE 2: Rank globally and select top 5
     console.log(`[Batch] Phase 2: Ranking sources globally and selecting top 5...`);
+    sendStatus('phase2', 'Ranking sources and selecting top 5...');
     const rankedByCategory = rankAndRecommendSources(sourcesByCategory, null, {
       global: true,
       topN: 5,
@@ -2743,6 +2775,7 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
 
     // PHASE 3: Save all sources and collect recommended ones
     console.log(`[Batch] Phase 3: Saving sources to database...`);
+    sendStatus('phase3', 'Saving sources to database...');
     let totalSources = 0;
     const recommendedSources = [];
     const sourceCounts = {};
@@ -2771,9 +2804,11 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
     }
 
     console.log(`[Batch] Saved ${totalSources} sources (${recommendedSources.length} recommended for auto-download)`);
+    sendStatus('saved', `Saved ${totalSources} sources (${recommendedSources.length} recommended)`, { totalSources, recommendedCount: recommendedSources.length });
 
     // PHASE 4: Auto-download only the top 5 recommended sources
     console.log(`[Batch] Phase 4: Auto-downloading top ${recommendedSources.length} sources to RAG...`);
+    sendStatus('phase4', `Auto-downloading top ${recommendedSources.length} sources...`);
     const downloadResults = {
       attempted: 0,
       succeeded: 0,
@@ -2784,25 +2819,31 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
     for (const source of recommendedSources) {
       downloadResults.attempted++;
       console.log(`[Batch] Auto-downloading: ${source.title}`);
+      sendStatus('downloading', `Downloading: ${source.title}`, { current: downloadResults.attempted, total: recommendedSources.length });
 
       const downloadResult = await downloadAndUploadToRAG(source, idrssd);
 
       if (downloadResult.success) {
         downloadResults.succeeded++;
         console.log(`[Batch] ✓ Auto-download succeeded: ${downloadResult.chunkCount} chunks`);
+        sendStatus('downloaded', `Downloaded: ${source.title} (${downloadResult.chunkCount} chunks)`, { succeeded: downloadResults.succeeded });
       } else if (downloadResult.skipped) {
         downloadResults.skipped++;
         console.log(`[Batch] ⏭ Auto-download skipped: ${downloadResult.reason}`);
+        sendStatus('skipped', `Skipped: ${source.title}`, { reason: downloadResult.reason });
       } else {
         downloadResults.failed++;
         console.log(`[Batch] ✗ Auto-download failed: ${downloadResult.error}`);
+        sendStatus('download_failed', `Failed: ${source.title}`, { error: downloadResult.error });
       }
     }
 
     console.log(`[Batch] Completed: ${totalSources} sources saved, top ${recommendedSources.length} downloaded (${downloadResults.succeeded} succeeded)`);
+    sendStatus('downloads_complete', `Downloads complete: ${downloadResults.succeeded}/${recommendedSources.length} succeeded`);
 
     // Gather metadata (logo, ticker, org chart)
     console.log(`[Batch] Starting metadata gathering (logo, ticker, org chart)...`);
+    sendStatus('metadata', 'Gathering metadata (logo, ticker, org chart)...');
 
     const metadata = await BankMetadata.getOrCreate(idrssd, bank.name);
     const metadataResults = {
@@ -2814,6 +2855,7 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
     // 1. Gather Logo
     try {
       console.log(`[Batch] Gathering logo...`);
+      sendStatus('logo', 'Searching for bank logo...');
       const { findLogoForBank } = require('../scripts/cli/findLogos');
       const logoResult = await findLogoForBank({
         idrssd: bank.idrssd,
@@ -2826,19 +2868,24 @@ router.post('/:idrssd/gather-sources-batch', async (req, res) => {
       if (logoResult && logoResult.success && !logoResult.existing) {
         metadataResults.logo = true;
         console.log(`[Batch] ✓ Logo found and saved`);
+        sendStatus('logo_found', 'Logo found and saved');
       } else if (logoResult && logoResult.existing) {
         metadataResults.logo = true;
         console.log(`[Batch] ✓ Logo already exists`);
+        sendStatus('logo_exists', 'Logo already exists');
       } else {
         console.log(`[Batch] ⚠ Logo not found`);
+        sendStatus('logo_not_found', 'Logo not found');
       }
     } catch (logoError) {
       console.error(`[Batch] Error gathering logo:`, logoError.message);
+      sendStatus('logo_error', `Error gathering logo: ${logoError.message}`);
     }
 
     // 2. Gather Ticker Symbol
     try {
       console.log(`[Batch] Gathering ticker symbol...`);
+      sendStatus('ticker', 'Searching for ticker symbol...');
 
       // For JP Morgan Chase Bank NA, search for parent company ticker
       let searchName = bank.name;
@@ -2890,23 +2937,29 @@ If not publicly traded, return: {"found": false}`;
             });
             metadataResults.ticker = true;
             console.log(`[Batch] ✓ Ticker found: ${tickerData.symbol} (${tickerData.exchange})`);
+            sendStatus('ticker_found', `Ticker found: ${tickerData.symbol}`, { symbol: tickerData.symbol, exchange: tickerData.exchange });
           } else {
             console.log(`[Batch] ⚠ Ticker not found or not publicly traded`);
+            sendStatus('ticker_not_found', 'Ticker not found or not publicly traded');
           }
         } catch (parseError) {
           console.error(`[Batch] Error parsing ticker JSON:`, parseError.message);
           console.error(`[Batch] JSON string was:`, jsonMatch[0]);
+          sendStatus('ticker_parse_error', 'Error parsing ticker response');
         }
       } else {
         console.log(`[Batch] ⚠ No JSON found in ticker response`);
+        sendStatus('ticker_no_json', 'No valid ticker data found');
       }
     } catch (tickerError) {
       console.error(`[Batch] Error gathering ticker:`, tickerError);
+      sendStatus('ticker_error', `Error gathering ticker: ${tickerError.message}`);
     }
 
     // 3. Gather Org Chart
     try {
       console.log(`[Batch] Gathering organizational chart...`);
+      sendStatus('orgchart', 'Searching for organizational chart...');
 
       // For JP Morgan Chase Bank NA, search for parent company executives
       let searchName = bank.name;
@@ -2991,21 +3044,27 @@ If you cannot find executives, return: {"found": false, "executives": [], "board
             });
             metadataResults.orgChart = true;
             console.log(`[Batch] ✓ Org chart found: ${orgChartData.executives?.length || 0} executives, ${orgChartData.boardMembers?.length || 0} board members`);
+            sendStatus('orgchart_found', `Org chart found: ${orgChartData.executives?.length || 0} executives`, { executiveCount: orgChartData.executives?.length, boardCount: orgChartData.boardMembers?.length });
           } else {
             console.log(`[Batch] ⚠ Org chart not found or empty`);
+            sendStatus('orgchart_not_found', 'Org chart not found or empty');
           }
         } catch (parseError) {
           console.error(`[Batch] Error parsing org chart JSON:`, parseError.message);
           console.error(`[Batch] JSON string was:`, jsonMatch[0]);
+          sendStatus('orgchart_parse_error', 'Error parsing org chart response');
         }
       } else {
         console.log(`[Batch] ⚠ No JSON found in org chart response`);
+        sendStatus('orgchart_no_json', 'No valid org chart data found');
       }
     } catch (orgChartError) {
       console.error(`[Batch] Error gathering org chart:`, orgChartError);
+      sendStatus('orgchart_error', `Error gathering org chart: ${orgChartError.message}`);
     }
 
     console.log(`[Batch] Metadata gathering complete:`, metadataResults);
+    sendStatus('metadata_complete', 'Metadata gathering complete', metadataResults);
 
     // Update Phase 1 status in BankMetadata
     try {
@@ -3014,13 +3073,17 @@ If you cannot find executives, return: {"found": false, "executives": [], "board
         completedAt: new Date()
       });
       console.log(`[Batch] ✓ Marked Phase 1 as completed in BankMetadata`);
+      sendStatus('phase_updated', 'Phase 1 marked as completed');
     } catch (phaseError) {
       console.error(`[Batch] Warning: Failed to update phase status:`, phaseError.message);
+      sendStatus('phase_update_warning', `Warning: Failed to update phase status: ${phaseError.message}`);
     }
 
     console.log(`[Batch] Phase 1 complete for ${bank.name}`);
 
-    res.json({
+    // Send final completion message
+    clearInterval(heartbeatInterval);
+    sendStatus('complete', 'Source gathering complete', {
       success: true,
       sessionId: sid,
       sourcesFound: totalSources,
@@ -3031,13 +3094,13 @@ If you cannot find executives, return: {"found": false, "executives": [], "board
         name: bank.name
       }
     });
+    res.end();
 
   } catch (error) {
     console.error('[Batch] Error in gather-sources-batch:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to gather sources'
-    });
+    clearInterval(heartbeatInterval);
+    sendStatus('error', error.message || 'Failed to gather sources');
+    res.end();
   }
 });
 

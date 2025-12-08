@@ -674,39 +674,89 @@ async function runPhase1ForBank(bank, bankLogger = null) {
 
     log.info('Starting Phase 1: Gather sources and metadata...');
 
-    // Start Phase 1 (gather sources)
+    // Start Phase 1 (gather sources) - now uses SSE streaming
     const sessionId = `batch-${Date.now()}-${bank.idrssd}`;
 
-    // Use batch endpoint with retry logic
-    const response = await withRetry(async () => {
-      return await axios.post(
-        `${API_BASE}/research/${bank.idrssd}/gather-sources-batch`,
-        {
-          sessionId,
-          config: {
-            categories: ['investorPresentation', 'earningsTranscript']
-          }
-        },
-        {
-          timeout: 1200000, // 20 minute timeout (4 categories × 5 min each)
-          validateStatus: (status) => status < 500 // Don't throw on 4xx errors
+    // SSE streaming endpoint for source gathering
+    const response = await axios.post(
+      `${API_BASE}/research/${bank.idrssd}/gather-sources-batch`,
+      {
+        sessionId,
+        config: {
+          categories: ['investorPresentation', 'earningsTranscript']
         }
-      );
-    }, 2, 10000); // 2 retries, 10 second delay
+      },
+      {
+        timeout: 1200000, // 20 minute timeout
+        responseType: 'stream' // Handle SSE stream
+      }
+    );
 
-    if (response.data.success) {
-      log.info(`Phase 1 completed: ${response.data.sourcesFound} sources found`);
+    // Parse SSE stream for Phase 1
+    let phase1Result = null;
+    await new Promise((resolve, reject) => {
+      let buffer = '';
+
+      response.data.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+
+              // Log progress updates
+              if (data.stage === 'init' || data.stage === 'starting' || data.stage === 'phase1' ||
+                  data.stage === 'phase2' || data.stage === 'phase3' || data.stage === 'phase4') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'searching' || data.stage === 'found') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'downloading' || data.stage === 'downloaded') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'metadata' || data.stage === 'logo' || data.stage === 'ticker' || data.stage === 'orgchart') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'complete') {
+                phase1Result = data;
+                log.info('Phase 1 completed successfully');
+                resolve();
+              } else if (data.stage === 'error') {
+                reject(new Error(data.message));
+              }
+            } catch (parseError) {
+              // Ignore parse errors for heartbeat or malformed lines
+            }
+          }
+        }
+      });
+
+      response.data.on('end', () => {
+        if (!phase1Result) {
+          reject(new Error('Stream ended without completion'));
+        } else {
+          resolve();
+        }
+      });
+
+      response.data.on('error', (err) => {
+        reject(err);
+      });
+    });
+
+    if (phase1Result && phase1Result.success) {
+      log.info(`Phase 1 completed: ${phase1Result.sourcesFound} sources found`);
 
       // Show metadata gathering results
-      if (response.data.metadata) {
-        const m = response.data.metadata;
+      if (phase1Result.metadata) {
+        const m = phase1Result.metadata;
         log.info(`Metadata gathered: Logo=${m.logo ? 'Yes' : 'No'}, Ticker=${m.ticker ? 'Yes' : 'No'}, OrgChart=${m.orgChart ? 'Yes' : 'No'}`);
       }
 
       const result = {
         success: true,
-        sourcesFound: response.data.sourcesFound,
-        metadata: response.data.metadata,
+        sourcesFound: phase1Result.sourcesFound,
+        metadata: phase1Result.metadata,
         completedPhase: 1
       };
 
