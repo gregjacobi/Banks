@@ -4961,32 +4961,26 @@ router.get('/:idrssd/status', async (req, res) => {
 router.get('/:idrssd/history', async (req, res) => {
   try {
     const { idrssd } = req.params;
-    const fs = require('fs').promises;
-    const path = require('path');
-
-    // Scan filesystem for report files
-    const researchDir = path.join(__dirname, '..', 'data', 'research');
     const history = [];
 
     try {
-      const files = await fs.readdir(researchDir);
+      // Query GridFS for this bank's agent reports
+      const bucket = getDocumentBucket();
+      const files = await listFilesInGridFS(bucket, {
+        filename: { $regex: `^${idrssd}_agent_.*\\.json$` }
+      });
 
-      // Filter for this bank's agent reports
-      const reportFiles = files.filter(f =>
-        f.startsWith(`${idrssd}_agent_`) && f.endsWith('.json')
-      );
+      console.log(`[History] Found ${files.length} GridFS files for bank ${idrssd}`);
 
       // Extract timestamps and create history entries
-      for (const file of reportFiles) {
-        const timestampMatch = file.match(/_agent_(\d+)\.json$/);
+      for (const file of files) {
+        const timestampMatch = file.filename.match(/_agent_(\d+)\.json$/);
         if (timestampMatch) {
           const timestamp = timestampMatch[1];
-          const filePath = path.join(researchDir, file);
 
           try {
-            // Read file to get metadata
-            const fileContent = await fs.readFile(filePath, 'utf8');
-            const reportData = JSON.parse(fileContent);
+            // Load file from GridFS to get metadata
+            const reportData = await loadJsonFromGridFSById(bucket, file._id);
 
             history.push({
               timestamp: parseInt(timestamp),
@@ -4997,7 +4991,7 @@ router.get('/:idrssd/history', async (req, res) => {
               bankName: reportData.bankName
             });
           } catch (fileError) {
-            console.error(`[History] Error reading report file ${file}:`, fileError.message);
+            console.error(`[History] Error reading GridFS file ${file.filename}:`, fileError.message);
             // Still add entry even if we can't read the file
             history.push({
               timestamp: parseInt(timestamp),
@@ -5013,11 +5007,11 @@ router.get('/:idrssd/history', async (req, res) => {
       // Sort by timestamp descending (newest first)
       history.sort((a, b) => b.timestamp - a.timestamp);
 
-      console.log(`[History] Found ${history.length} reports for bank ${idrssd}`);
+      console.log(`[History] Returning ${history.length} reports for bank ${idrssd}`);
 
-    } catch (dirError) {
-      // Research directory doesn't exist yet
-      console.log(`[History] Research directory not found: ${researchDir}`);
+    } catch (gridfsError) {
+      // No reports found or GridFS error
+      console.log(`[History] GridFS query error or no reports found:`, gridfsError.message);
     }
 
     res.json({
