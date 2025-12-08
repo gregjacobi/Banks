@@ -65,7 +65,8 @@
       "Bash(npm run compile-skills:*)",
       "Bash(bash)",
       "Bash(ln:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(heroku apps:*)"
     ],
     "deny": [],
     "ask": []
