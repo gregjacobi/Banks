@@ -311,18 +311,23 @@ async function downloadAndUploadToRAG(source, idrssd) {
       fileSize = content.length;
 
       // CONTENT QUALITY VALIDATION: Reject boilerplate/legal disclaimers
-      const qualityCheck = validateContentQuality(content, source.title);
-      if (!qualityCheck.isValid) {
-        console.log(`[Phase 1 Auto-Download] Content quality check FAILED: ${qualityCheck.reason}`);
-        await source.markPhase1Download(false);
-        await source.storeFetchedContent({
-          fetchable: false,
-          error: `Content quality check failed: ${qualityCheck.reason}`,
-          contentType: 'rejected'
-        });
-        return { success: false, skipped: true, reason: qualityCheck.reason };
+      // Skip quality check for PDFs since they have placeholder content and will be processed directly
+      if (contentType !== 'pdf') {
+        const qualityCheck = validateContentQuality(content, source.title);
+        if (!qualityCheck.isValid) {
+          console.log(`[Phase 1 Auto-Download] Content quality check FAILED: ${qualityCheck.reason}`);
+          await source.markPhase1Download(false);
+          await source.storeFetchedContent({
+            fetchable: false,
+            error: `Content quality check failed: ${qualityCheck.reason}`,
+            contentType: 'rejected'
+          });
+          return { success: false, skipped: true, reason: qualityCheck.reason };
+        }
+        console.log(`[Phase 1 Auto-Download] Content quality check PASSED: ${qualityCheck.details}`);
+      } else {
+        console.log(`[Phase 1 Auto-Download] Skipping quality check for PDF (will be processed directly)`);
       }
-      console.log(`[Phase 1 Auto-Download] Content quality check PASSED: ${qualityCheck.details}`);
 
       // Save web content to disk as text file
       const timestamp = Date.now();
