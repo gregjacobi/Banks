@@ -4,6 +4,7 @@ const Institution = require('../models/Institution');
 const FinancialStatement = require('../models/FinancialStatement');
 const BankMetadata = require('../models/BankMetadata');
 const Source = require('../models/Source');
+const ResearchReport = require('../models/ResearchReport');
 const AgentOrchestrator = require('./agentOrchestrator');
 const modelResolver = require('./modelResolver');
 
@@ -352,6 +353,21 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
 
     console.log(`[Agent Report Service] DEBUG: - saveJsonToGridFS returned fileId:`, fileId);
     console.log(`[Agent Report Service] DEBUG: - File saved successfully to GridFS with ID: ${fileId}`);
+
+    // Also save to ResearchReport collection for history tracking
+    try {
+      const researchReport = new ResearchReport({
+        idrssd,
+        reportData,
+        gridfsFileId: fileId,
+        fileName
+      });
+      await researchReport.save();
+      console.log(`[Agent Report Service] Saved report to ResearchReport collection`);
+    } catch (mongoError) {
+      console.error(`[Agent Report Service] Warning: Failed to save to ResearchReport collection:`, mongoError.message);
+      // Don't fail - GridFS save succeeded
+    }
 
     // Step 8: Complete - Update phase status
     try {
