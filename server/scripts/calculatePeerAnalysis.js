@@ -342,18 +342,23 @@ async function generateAllPeerAnalyses() {
   const sortedBanks = latestStatements.map(s => s._id);
   console.log(`Sorted ${sortedBanks.length} banks by asset size (largest first)\n`);
 
+  // Limit to top 100 banks
+  const TOP_N = 100;
+  const banksToProcess = sortedBanks.slice(0, TOP_N);
+  console.log(`Processing top ${banksToProcess.length} banks\n`);
+
   let processed = 0;
   let errors = 0;
 
-  // Process banks in parallel batches
-  const BATCH_SIZE = 10;  // Process 10 banks at a time
+  // Process banks in parallel batches - reduced from 10 to 2 to avoid memory issues
+  const BATCH_SIZE = 2;  // Process 2 banks at a time
 
-  for (let i = 0; i < sortedBanks.length; i += BATCH_SIZE) {
-    const batch = sortedBanks.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < banksToProcess.length; i += BATCH_SIZE) {
+    const batch = banksToProcess.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(sortedBanks.length / BATCH_SIZE);
+    const totalBatches = Math.ceil(banksToProcess.length / BATCH_SIZE);
 
-    console.log(`\n📦 Batch ${batchNum}/${totalBatches} (Banks ${i + 1}-${Math.min(i + BATCH_SIZE, sortedBanks.length)})`);
+    console.log(`\n📦 Batch ${batchNum}/${totalBatches} (Banks ${i + 1}-${Math.min(i + BATCH_SIZE, banksToProcess.length)})`);
 
     // Process all banks in this batch concurrently
     const batchPromises = batch.map(async (idrssd) => {
@@ -383,7 +388,7 @@ async function generateAllPeerAnalyses() {
           }
 
           processed++;
-          console.log(`    ✓ ${institution?.name || idrssd} (${processed}/${sortedBanks.length})`);
+          console.log(`    ✓ ${institution?.name || idrssd} (${processed}/${banksToProcess.length})`);
           return { success: true, idrssd };
         }
       } catch (error) {
