@@ -1923,8 +1923,9 @@ router.get('/:idrssd/podcast/latest', async (req, res) => {
     const { idrssd } = req.params;
 
     // Find all podcasts for this bank (from GridFS getAudioBucket())
+    // Match both old format (idrssd_timestamp.mp3) and new format (podcast_idrssd_timestamp.mp3)
     const files = await listFilesInGridFS(getAudioBucket(), {
-      filename: { $regex: `^${idrssd}_.*\\.mp3$` }
+      filename: { $regex: `^(podcast_)?${idrssd}_.*\\.mp3$` }
     });
 
     if (files.length === 0) {
@@ -1934,16 +1935,21 @@ router.get('/:idrssd/podcast/latest', async (req, res) => {
       });
     }
 
-    // Sort by timestamp (filename format: idrssd_timestamp.mp3)
+    // Sort by timestamp (filename format: idrssd_timestamp.mp3 or podcast_idrssd_timestamp.mp3)
     const bankPodcasts = files.map(f => f.filename).sort((a, b) => {
-      const timeA = parseInt(a.split('_')[1].split('.')[0]);
-      const timeB = parseInt(b.split('_')[1].split('.')[0]);
+      // Extract timestamp - it's always the last segment before .mp3
+      const partsA = a.replace('.mp3', '').split('_');
+      const partsB = b.replace('.mp3', '').split('_');
+      const timeA = parseInt(partsA[partsA.length - 1]);
+      const timeB = parseInt(partsB[partsB.length - 1]);
       return timeB - timeA; // Most recent first
     });
 
     const latestPodcast = bankPodcasts[0];
     const latestPodcastFile = files.find(f => f.filename === latestPodcast);
-    const timestamp = parseInt(latestPodcast.split('_')[1].split('.')[0]);
+    // Extract timestamp - it's always the last segment before .mp3
+    const parts = latestPodcast.replace('.mp3', '').split('_');
+    const timestamp = parseInt(parts[parts.length - 1]);
 
     // Get file size to estimate duration (rough estimate: 1MB ≈ 1 minute)
     const estimatedDuration = Math.round(latestPodcastFile.length / 1024 / 1024); // MB as rough minutes
