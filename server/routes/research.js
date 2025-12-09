@@ -1361,8 +1361,9 @@ router.post('/:idrssd/generate-agent-batch', async (req, res) => {
       idrssd,
       sessionId,
       {
-        onProgress: (stage, message) => {
-          sendStatus(stage, message);
+        onProgress: (progressData) => {
+          const { stage, message, ...data } = progressData;
+          sendStatus(stage, message, data);
         }
       }
     );
