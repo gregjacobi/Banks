@@ -15,24 +15,48 @@ const { Readable } = require('stream');
  */
 async function saveJsonToGridFS(bucket, filename, data, metadata = {}) {
   return new Promise((resolve, reject) => {
-    const jsonString = JSON.stringify(data, null, 2);
-    const readableStream = Readable.from([jsonString]);
+    console.log(`[GridFS Helper] Starting saveJsonToGridFS for: ${filename}`);
+    console.log(`[GridFS Helper] - Bucket:`, bucket ? 'provided' : 'MISSING');
+    console.log(`[GridFS Helper] - Bucket type:`, bucket ? bucket.constructor.name : 'N/A');
 
+    const jsonString = JSON.stringify(data, null, 2);
+    const dataSize = Buffer.byteLength(jsonString, 'utf8');
+    console.log(`[GridFS Helper] - JSON data size: ${dataSize} bytes`);
+
+    const readableStream = Readable.from([jsonString]);
+    console.log(`[GridFS Helper] - Readable stream created`);
+
+    console.log(`[GridFS Helper] - Opening upload stream with metadata:`, { ...metadata, uploadedAt: 'Date()', size: dataSize });
     const uploadStream = bucket.openUploadStream(filename, {
       contentType: 'application/json',
       metadata: {
         ...metadata,
         uploadedAt: new Date(),
-        size: Buffer.byteLength(jsonString, 'utf8')
+        size: dataSize
       }
     });
 
-    uploadStream.on('error', reject);
+    console.log(`[GridFS Helper] - Upload stream opened, ID:`, uploadStream.id);
+
+    uploadStream.on('error', (err) => {
+      console.error(`[GridFS Helper] ERROR during upload:`, err.message);
+      console.error(`[GridFS Helper] ERROR stack:`, err.stack);
+      reject(err);
+    });
+
     uploadStream.on('finish', () => {
+      console.log(`[GridFS Helper] ✓ Upload stream finished for: ${filename}`);
+      console.log(`[GridFS Helper] ✓ File ID: ${uploadStream.id}`);
       resolve(uploadStream.id);
     });
 
+    uploadStream.on('close', () => {
+      console.log(`[GridFS Helper] Upload stream closed for: ${filename}`);
+    });
+
+    console.log(`[GridFS Helper] - Piping readable stream to upload stream...`);
     readableStream.pipe(uploadStream);
+    console.log(`[GridFS Helper] - Pipe initiated`);
   });
 }
 

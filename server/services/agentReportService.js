@@ -329,11 +329,24 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
     };
 
     // Save to GridFS
-    await saveJsonToGridFS(getDocumentBucket(), fileName, reportData, {
+    console.log(`[Agent Report Service] DEBUG: About to save report to GridFS`);
+    console.log(`[Agent Report Service] DEBUG: - fileName: ${fileName}`);
+    console.log(`[Agent Report Service] DEBUG: - reportData size: ${JSON.stringify(reportData).length} bytes`);
+    console.log(`[Agent Report Service] DEBUG: - Getting document bucket...`);
+
+    const bucket = getDocumentBucket();
+    console.log(`[Agent Report Service] DEBUG: - Bucket obtained:`, bucket ? 'YES' : 'NO');
+    console.log(`[Agent Report Service] DEBUG: - Bucket type:`, bucket ? bucket.constructor.name : 'N/A');
+
+    console.log(`[Agent Report Service] DEBUG: - Calling saveJsonToGridFS...`);
+    const fileId = await saveJsonToGridFS(bucket, fileName, reportData, {
       idrssd,
       type: 'agent-report',
       method: 'agent-based'
     });
+
+    console.log(`[Agent Report Service] DEBUG: - saveJsonToGridFS returned fileId:`, fileId);
+    console.log(`[Agent Report Service] DEBUG: - File saved successfully to GridFS with ID: ${fileId}`);
 
     // Step 8: Complete - Update phase status
     try {
