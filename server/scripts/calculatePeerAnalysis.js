@@ -350,56 +350,46 @@ async function generateAllPeerAnalyses() {
   let processed = 0;
   let errors = 0;
 
-  // Process banks in parallel batches - reduced from 10 to 2 to avoid memory issues
-  const BATCH_SIZE = 2;  // Process 2 banks at a time
+  // Process banks sequentially (one at a time) to avoid memory issues
+  for (let i = 0; i < banksToProcess.length; i++) {
+    const idrssd = banksToProcess[i];
+    const bankNum = i + 1;
 
-  for (let i = 0; i < banksToProcess.length; i += BATCH_SIZE) {
-    const batch = banksToProcess.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(banksToProcess.length / BATCH_SIZE);
+    console.log(`\n🏦 Bank ${bankNum}/${banksToProcess.length}`);
 
-    console.log(`\n📦 Batch ${batchNum}/${totalBatches} (Banks ${i + 1}-${Math.min(i + BATCH_SIZE, banksToProcess.length)})`);
+    // Process one bank at a time
+    try {
+      const institution = institutionMap.get(idrssd);
+      const analysis = await generatePeerAnalysis(idrssd, institution);
 
-    // Process all banks in this batch concurrently
-    const batchPromises = batch.map(async (idrssd) => {
-      try {
-        const institution = institutionMap.get(idrssd);
-        const analysis = await generatePeerAnalysis(idrssd, institution);
-
-        if (analysis && analysis.periods.length > 0) {
-          // Store peer analysis in the financial statements
-          for (const period of analysis.periods) {
-            await FinancialStatement.updateOne(
-              {
-                idrssd: analysis.idrssd,
-                reportingPeriod: period.reportingPeriod
-              },
-              {
-                $set: {
-                  peerAnalysis: {
-                    peers: period.peers,
-                    peerAverages: period.peerAverages,
-                    rankings: period.rankings,
-                    generatedAt: analysis.generatedAt
-                  }
+      if (analysis && analysis.periods.length > 0) {
+        // Store peer analysis in the financial statements
+        for (const period of analysis.periods) {
+          await FinancialStatement.updateOne(
+            {
+              idrssd: analysis.idrssd,
+              reportingPeriod: period.reportingPeriod
+            },
+            {
+              $set: {
+                peerAnalysis: {
+                  peers: period.peers,
+                  peerAverages: period.peerAverages,
+                  rankings: period.rankings,
+                  generatedAt: analysis.generatedAt
                 }
               }
-            );
-          }
-
-          processed++;
-          console.log(`    ✓ ${institution?.name || idrssd} (${processed}/${banksToProcess.length})`);
-          return { success: true, idrssd };
+            }
+          );
         }
-      } catch (error) {
-        errors++;
-        console.error(`    ✗ ${idrssd}: ${error.message}`);
-        return { success: false, idrssd, error: error.message };
-      }
-    });
 
-    // Wait for all banks in this batch to complete
-    await Promise.all(batchPromises);
+        processed++;
+        console.log(`    ✓ ${institution?.name || idrssd} (${processed}/${banksToProcess.length})`);
+      }
+    } catch (error) {
+      errors++;
+      console.error(`    ✗ ${idrssd}: ${error.message}`);
+    }
   }
 
   console.log(`\n✅ Peer analysis generation complete!`);
