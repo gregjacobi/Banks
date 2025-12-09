@@ -31,6 +31,9 @@ const {
 const getDocumentBucket = () => gridfs.documentBucket;
 const getAudioBucket = () => gridfs.audioBucket;
 
+// Data directories
+const PDFS_DIR = path.join(__dirname, '../data/research/pdfs');
+
 // Initialize services
 const claudeService = new ClaudeService();
 const contentFetcher = new ContentFetcher();
