@@ -401,8 +401,11 @@ async function generateReportForBank(bank, sessionId, log) {
               if (data.stage === 'complete') {
                 phase3Result = data;
                 log.info('Research report generated successfully');
-                if (data.report?.generatedAt) {
-                  log.info(`Report timestamp: ${data.report.generatedAt}`);
+                if (data.generatedAt) {
+                  log.info(`Report timestamp: ${data.generatedAt}`);
+                }
+                if (data.fileName) {
+                  log.info(`Report file: ${data.fileName}`);
                 }
                 resolve();
               } else if (data.stage === 'error') {
@@ -428,11 +431,18 @@ async function generateReportForBank(bank, sessionId, log) {
       });
     });
 
-    if (phase3Result && phase3Result.success && phase3Result.report) {
-      return { success: true, report: phase3Result.report };
+    // Report is saved to database by the server - we just need to confirm success
+    // No longer expecting full report object (it was too large for SSE)
+    if (phase3Result && phase3Result.success) {
+      return {
+        success: true,
+        fileName: phase3Result.fileName,
+        generatedAt: phase3Result.generatedAt,
+        bankName: phase3Result.bankName
+      };
     } else {
-      log.error(`Report generation failed: ${phase3Result?.error || 'No report in response'}`);
-      return { success: false, error: phase3Result?.error || 'No report in response' };
+      log.error(`Report generation failed: ${phase3Result?.error || 'Unknown error'}`);
+      return { success: false, error: phase3Result?.error || 'Unknown error' };
     }
 
   } catch (error) {

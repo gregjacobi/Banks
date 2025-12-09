@@ -26,6 +26,7 @@ const {
   deleteFileFromGridFS,
   fileExistsInGridFS
 } = require('../utils/gridfsHelpers');
+const { uploadToGridFS } = require('../utils/gridfsUtils');
 
 // Helper functions to get buckets (lazy access after GridFS initialization)
 const getDocumentBucket = () => gridfs.documentBucket;
@@ -193,25 +194,12 @@ async function downloadAndUploadToRAG(source, idrssd) {
 
         console.log(`[Phase 1 Auto-Download] Uploading PDF to GridFS: ${fileSize} bytes`);
 
-        const { pdfBucket } = require('../config/gridfs');
-        const uploadStream = pdfBucket.openUploadStream(filename, {
-          contentType: 'application/pdf',
-          metadata: {
-            idrssd,
-            sourceUrl: source.url,
-            uploadType: 'from_source',
-            uploadedAt: new Date()
-          }
+        gridfsFileId = await uploadToGridFS(pdfBuffer, filename, 'application/pdf', {
+          idrssd,
+          sourceUrl: source.url,
+          sourceId: source.sourceId
         });
 
-        uploadStream.end(pdfBuffer);
-
-        await new Promise((resolve, reject) => {
-          uploadStream.on('finish', resolve);
-          uploadStream.on('error', reject);
-        });
-
-        gridfsFileId = uploadStream.id;
         console.log(`[Phase 1 Auto-Download] PDF uploaded to GridFS with file ID: ${gridfsFileId}`);
 
         // Create PDF record with GridFS reference
@@ -313,9 +301,82 @@ async function downloadAndUploadToRAG(source, idrssd) {
       contentType = fetchResult.contentType || 'text';
       fileSize = content.length;
 
-      // CONTENT QUALITY VALIDATION: Reject boilerplate/legal disclaimers
-      // Skip quality check for PDFs since they have placeholder content and will be processed directly
-      if (contentType !== 'pdf') {
+      // If ContentFetcher detected a PDF, download it properly
+      if (contentType === 'pdf') {
+        console.log(`[Phase 1 Auto-Download] ContentFetcher detected PDF, downloading actual file...`);
+
+        try {
+          const pdfResponse = await axios.get(source.url, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+            maxContentLength: 50 * 1024 * 1024, // 50MB max
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            }
+          });
+
+          if (pdfResponse.status !== 200) {
+            throw new Error(`HTTP ${pdfResponse.status}: ${pdfResponse.statusText}`);
+          }
+
+          const pdfBuffer = Buffer.from(pdfResponse.data);
+          fileSize = pdfBuffer.length;
+          isPDF = true;
+
+          console.log(`[Phase 1 Auto-Download] PDF downloaded: ${(fileSize / 1024).toFixed(2)} KB`);
+
+          // Upload to GridFS
+          const pdfFilename = `${source.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+          gridfsFileId = await uploadToGridFS(pdfBuffer, pdfFilename, 'application/pdf', {
+            idrssd,
+            sourceUrl: source.url,
+            sourceId: source.sourceId
+          });
+
+          console.log(`[Phase 1 Auto-Download] PDF uploaded to GridFS: ${gridfsFileId}`);
+
+          // Store fetched content info in source (with PDF flag)
+          await source.storeFetchedContent({
+            ...fetchResult,
+            contentType: 'pdf',
+            actualFileSize: fileSize,
+            gridfsFileId: gridfsFileId
+          });
+
+        } catch (pdfError) {
+          console.error(`[Phase 1 Auto-Download] Error downloading PDF:`, pdfError.message);
+
+          const statusCode = pdfError.response?.status;
+
+          if (statusCode === 403) {
+            console.log(`[Phase 1 Auto-Download] PDF access forbidden (paywall/auth required)`);
+            await source.markPhase1Download(false);
+            await source.storeFetchedContent({
+              fetchable: false,
+              error: 'PDF access forbidden - paywall or authentication required',
+              contentType: 'error'
+            });
+            return { success: false, skipped: true, reason: 'access_forbidden' };
+          }
+
+          if (statusCode === 404) {
+            console.log(`[Phase 1 Auto-Download] PDF not found (URL may be outdated)`);
+            await source.markPhase1Download(false);
+            await source.storeFetchedContent({
+              fetchable: false,
+              error: 'PDF not found - URL may be outdated',
+              contentType: 'error'
+            });
+            return { success: false, skipped: true, reason: 'not_found' };
+          }
+
+          throw pdfError;
+        }
+
+      } else {
+        // Regular web content (HTML, text, etc.)
+
+        // CONTENT QUALITY VALIDATION: Reject boilerplate/legal disclaimers
         const qualityCheck = validateContentQuality(content, source.title);
         if (!qualityCheck.isValid) {
           console.log(`[Phase 1 Auto-Download] Content quality check FAILED: ${qualityCheck.reason}`);
@@ -328,24 +389,22 @@ async function downloadAndUploadToRAG(source, idrssd) {
           return { success: false, skipped: true, reason: qualityCheck.reason };
         }
         console.log(`[Phase 1 Auto-Download] Content quality check PASSED: ${qualityCheck.details}`);
-      } else {
-        console.log(`[Phase 1 Auto-Download] Skipping quality check for PDF (will be processed directly)`);
+
+        // Save web content to disk as text file
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substring(7);
+        const filename = `${timestamp}_${randomId}.txt`;
+        const bankContentDir = path.join(PDFS_DIR, idrssd, 'web-content');
+        await fs.mkdir(bankContentDir, { recursive: true });
+        filePath = path.join(bankContentDir, filename);
+
+        await fs.writeFile(filePath, content, 'utf-8');
+
+        console.log(`[Phase 1 Auto-Download] Web content saved: ${fileSize} chars`);
+
+        // Store fetched content in source
+        await source.storeFetchedContent(fetchResult);
       }
-
-      // Save web content to disk as text file
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(7);
-      const filename = `${timestamp}_${randomId}.txt`;
-      const bankContentDir = path.join(PDFS_DIR, idrssd, 'web-content');
-      await fs.mkdir(bankContentDir, { recursive: true });
-      filePath = path.join(bankContentDir, filename);
-
-      await fs.writeFile(filePath, content, 'utf-8');
-
-      console.log(`[Phase 1 Auto-Download] Web content saved: ${fileSize} chars`);
-
-      // Store fetched content in source
-      await source.storeFetchedContent(fetchResult);
     }
 
     // Create GroundingDocument
@@ -1380,10 +1439,13 @@ router.post('/:idrssd/generate-agent-batch', async (req, res) => {
 
     if (result.success) {
       console.log(`[Batch] Agent report generated successfully: ${result.fileName}`);
+      // Don't send full report object - it's too large for SSE and causes parsing issues
+      // Just send key metadata - the report is already saved to the database
       sendStatus('complete', 'Report generation complete', {
         success: true,
-        report: result.report,
-        fileName: result.fileName
+        fileName: result.fileName,
+        generatedAt: result.report?.generatedAt,
+        bankName: result.report?.bankName
       });
       res.end();
     } else {

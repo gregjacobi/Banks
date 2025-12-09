@@ -137,8 +137,12 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
   };
 
   try {
-    // Step 1: Fetch bank information
+    // Step 1: Fetch bank information and resolve model
     sendProgress('init', 'Initializing agent research system...');
+
+    // Resolve the model to use for this report
+    const synthesisModel = await modelResolver.getLatestKitModel();
+    console.log(`[Agent Report Service] Using model: ${synthesisModel}`);
 
     const institution = await Institution.findOne({ idrssd });
     if (!institution) {
@@ -301,7 +305,8 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
       peerData,
       approvedSources,
       financialStatements,
-      sendProgress
+      sendProgress,
+      synthesisModel
     );
 
     // Step 7: Save report
@@ -318,7 +323,7 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
       bankName: institution.name,
       generatedAt: new Date().toISOString(),
       method: 'agent-based',
-      model: 'claude-sonnet-4.5',
+      model: synthesisModel,
       analysis: fullReport,
       agentInsights: agentResult.insights,
       agentStats: agentResult.stats,
@@ -461,6 +466,7 @@ Use your tools strategically to build a comprehensive understanding. Be thorough
 
 /**
  * Synthesize the final report from agent insights
+ * @param {string} model - The Claude model to use for synthesis
  */
 async function synthesizeReport(
   agentResult,
@@ -469,7 +475,8 @@ async function synthesizeReport(
   peerData,
   approvedSources,
   financialStatements,
-  sendProgress
+  sendProgress,
+  model
 ) {
   // Build comprehensive sources list
   const allSources = [];
@@ -706,10 +713,9 @@ Write in a professional, analytical tone suitable for investors and executives. 
 
   // Use Claude to synthesize the report
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const latestModel = await modelResolver.getLatestKitModel();
 
   const synthesisStream = await anthropic.messages.stream({
-    model: latestModel,
+    model: model,  // Use the model passed from generateAgentReport
     max_tokens: 16000,
     thinking: {
       type: 'enabled',
