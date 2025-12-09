@@ -30,25 +30,29 @@ function initializeGridFS() {
   // PDF Bucket: 255KB chunks (default, optimal for PDFs and ZIPs)
   pdfBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
     bucketName: 'pdfs',
-    chunkSizeBytes: 255 * 1024  // 255KB
+    chunkSizeBytes: 255 * 1024,  // 255KB
+    writeConcern: { w: 'majority', j: true }  // Ensure writes are persisted and journaled
   });
 
   // Audio Bucket: 512KB chunks (larger for streaming audio)
   audioBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
     bucketName: 'audio',
-    chunkSizeBytes: 512 * 1024  // 512KB
+    chunkSizeBytes: 512 * 1024,  // 512KB
+    writeConcern: { w: 'majority', j: true }  // Ensure writes are persisted and journaled
   });
 
   // Image Bucket: 128KB chunks (smaller for images)
   imageBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
     bucketName: 'images',
-    chunkSizeBytes: 128 * 1024  // 128KB
+    chunkSizeBytes: 128 * 1024,  // 128KB
+    writeConcern: { w: 'majority', j: true }  // Ensure writes are persisted and journaled
   });
 
   // Document Bucket: 255KB chunks (for JSON documents - research reports, scripts, presentations)
   documentBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
     bucketName: 'documents',
-    chunkSizeBytes: 255 * 1024  // 255KB
+    chunkSizeBytes: 255 * 1024,  // 255KB
+    writeConcern: { w: 'majority', j: true }  // Ensure writes are persisted and journaled
   });
 
   console.log('✓ GridFS buckets initialized (pdfs, audio, images, documents)');
