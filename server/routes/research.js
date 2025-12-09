@@ -1344,7 +1344,7 @@ Write in a professional, analytical tone suitable for investors and executives. 
       bankName: institution.name,
       generatedAt: new Date().toISOString(),
       method: 'agent-based',
-      model: 'claude-sonnet-4.5',
+      model: latestModel,
       analysis: fullReport,
       agentInsights: agentResult.insights,
       agentStats: agentResult.stats,
@@ -1353,16 +1353,26 @@ Write in a professional, analytical tone suitable for investors and executives. 
       webSearchSources: webSearchSources // Track web search sources for citation tracking
     };
 
-    // Save report to MongoDB
+    // Save report to GridFS (primary storage)
+    const fileId = await saveJsonToGridFS(getDocumentBucket(), fileName, reportData, {
+      idrssd,
+      type: 'agent-report',
+      method: 'agent-based'
+    });
+    console.log(`Report saved to GridFS for bank ${idrssd}, fileId: ${fileId}`);
+
+    // Also save to ResearchReport collection for history tracking
     const ResearchReport = require('../models/ResearchReport');
     await ResearchReport.create({
       idrssd,
       title: `${institution.name} Analysis - ${new Date().toLocaleDateString()}`,
       reportData: reportData,
+      gridfsFileId: fileId,
+      fileName,
       agentVersion: 'v2.0'
     });
 
-    console.log(`Report saved to MongoDB for bank ${idrssd}`);
+    console.log(`Report saved to ResearchReport collection for bank ${idrssd}`);
 
     // Step 7: Complete
     sendStatus('complete', 'Agent-based report generated successfully', {
@@ -4304,8 +4314,23 @@ ${s.content}
     };
 
     console.log('Saving report to GridFS:', filename);
-    await saveJsonToGridFS(getDocumentBucket(), filename, reportData, { idrssd, type: 'research', sessionId });
+    const fileId = await saveJsonToGridFS(getDocumentBucket(), filename, reportData, { idrssd, type: 'research', sessionId });
     console.log('Report saved to GridFS successfully');
+
+    // Also save to ResearchReport collection for history tracking
+    const ResearchReport = require('../models/ResearchReport');
+    try {
+      await ResearchReport.create({
+        idrssd,
+        title: `${bankName} Analysis - ${new Date().toLocaleDateString()}`,
+        reportData: reportData,
+        gridfsFileId: fileId,
+        fileName: filename
+      });
+      console.log('Report saved to ResearchReport collection');
+    } catch (mongoError) {
+      console.error('Warning: Failed to save to ResearchReport collection:', mongoError.message);
+    }
 
     // Update source usage tracking
     console.log('Updating source usage tracking...');
