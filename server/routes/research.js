@@ -1319,51 +1319,76 @@ Write in a professional, analytical tone suitable for investors and executives. 
 
 /**
  * POST /api/research/:idrssd/generate-agent-batch
- * Batch version of generate-agent (non-SSE, returns complete result)
- * Perfect for CLI tools and scripting
+ * SSE streaming version of generate-agent for batch processing
+ * Sends progress updates to prevent Heroku H12/H15 timeouts
  */
 router.post('/:idrssd/generate-agent-batch', async (req, res) => {
-  try {
-    const { idrssd } = req.params;
-    const { sessionId } = req.body;
+  const { idrssd } = req.params;
+  const { sessionId } = req.body;
 
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendStatus = (stage, message, data = {}) => {
+    res.write(`data: ${JSON.stringify({ stage, message, ...data })}\n\n`);
+  };
+
+  // Heartbeat to prevent H15 idle connection timeout (55 seconds)
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+      if (res.socket && res.socket.writable) {
+        res.socket.uncork();
+      }
+    } catch (err) {
+      console.error('[Batch Generate Agent Heartbeat] Error:', err.message);
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000); // 30 seconds
+
+  try {
     console.log(`[Batch] Starting agent report generation for bank ${idrssd}`);
+    sendStatus('init', 'Initializing agent report generation...');
 
     // Use the agent report service (shared logic with SSE endpoint)
     const agentReportService = require('../services/agentReportService');
 
+    // Pass onProgress callback to send SSE updates
     const result = await agentReportService.generateAgentReport(
       idrssd,
       sessionId,
       {
-        // No onProgress callback for batch mode - just generate silently
-        onProgress: null
+        onProgress: (stage, message) => {
+          sendStatus(stage, message);
+        }
       }
     );
 
+    clearInterval(heartbeatInterval);
+
     if (result.success) {
       console.log(`[Batch] Agent report generated successfully: ${result.fileName}`);
-      res.json({
+      sendStatus('complete', 'Report generation complete', {
         success: true,
         report: result.report,
         fileName: result.fileName
       });
+      res.end();
     } else {
       console.error(`[Batch] Agent report generation failed: ${result.error}`);
-      res.status(500).json({
-        success: false,
-        error: result.error
-      });
+      sendStatus('error', result.error || 'Failed to generate report');
+      res.end();
     }
 
   } catch (error) {
     console.error('[Batch] Error in generate-agent-batch:', error.message);
     console.error('[Batch] Stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
-    });
+    clearInterval(heartbeatInterval);
+    sendStatus('error', error.message || 'Failed to generate report');
+    res.end();
   }
 });
 
@@ -3106,13 +3131,38 @@ If you cannot find executives, return: {"found": false, "executives": [], "board
 
 /**
  * POST /api/research/:idrssd/extract-insights-batch
- * Batch endpoint for extracting insights from RAG (Phase 3)
+ * SSE streaming version of extract-insights for batch processing
+ * Sends progress updates to prevent Heroku H12/H15 timeouts
  */
 router.post('/:idrssd/extract-insights-batch', async (req, res) => {
   const { idrssd } = req.params;
 
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendStatus = (stage, message, data = {}) => {
+    res.write(`data: ${JSON.stringify({ stage, message, ...data })}\n\n`);
+  };
+
+  // Heartbeat to prevent H15 idle connection timeout (55 seconds)
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+      if (res.socket && res.socket.writable) {
+        res.socket.uncork();
+      }
+    } catch (err) {
+      console.error('[Batch Extract Insights Heartbeat] Error:', err.message);
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000); // 30 seconds
+
   try {
     console.log(`\n[Batch Extract Insights] Starting for bank ${idrssd}`);
+    sendStatus('init', 'Initializing insight extraction...');
 
     // Get or create bank metadata
     const BankMetadata = require('../models/BankMetadata');
@@ -3121,18 +3171,21 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
 
     const institution = await Institution.findOne({ idrssd });
     if (!institution) {
-      return res.status(404).json({
-        success: false,
-        error: `Institution ${idrssd} not found`
-      });
+      clearInterval(heartbeatInterval);
+      sendStatus('error', `Institution ${idrssd} not found`);
+      res.end();
+      return;
     }
 
     console.log(`[Batch Extract Insights] Found institution: ${institution.name}`);
+    sendStatus('starting', `Starting insight extraction for ${institution.name}`);
+
     const metadata = await BankMetadata.getOrCreate(idrssd, institution.name);
     await metadata.startInsightExtraction();
     await metadata.updateResearchPhase('phase3', 'in_progress');
 
     console.log('[Batch Extract Insights] Checking RAG documents...');
+    sendStatus('checking', 'Checking RAG documents...');
 
     // Check if there are any documents in RAG
     const documentCount = await GroundingDocument.countDocuments({ idrssd });
@@ -3140,13 +3193,14 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
       await metadata.updateResearchPhase('phase3', 'failed', {
         error: 'No documents found in RAG'
       });
-      return res.status(400).json({
-        success: false,
-        error: 'No documents found in RAG. Please upload documents first.'
-      });
+      clearInterval(heartbeatInterval);
+      sendStatus('error', 'No documents found in RAG. Please upload documents first.');
+      res.end();
+      return;
     }
 
     console.log(`[Batch Extract Insights] Found ${documentCount} documents in RAG`);
+    sendStatus('found', `Found ${documentCount} documents in RAG`, { documentCount });
 
     // Get all documents for this bank
     const documents = await GroundingDocument.find({ idrssd })
@@ -3154,6 +3208,7 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
       .lean();
 
     console.log('[Batch Extract Insights] Querying RAG for strategic priorities...');
+    sendStatus('querying', 'Querying RAG for strategic priorities...');
 
     // Query RAG for strategic priorities using groundingService
     const groundingService = require('../services/groundingService');
@@ -3163,8 +3218,10 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
       10
     );
     console.log(`[Batch Extract Insights] Retrieved ${priorityChunks.length} priority chunks`);
+    sendStatus('priorities', `Retrieved ${priorityChunks.length} priority chunks`, { count: priorityChunks.length });
 
     console.log('[Batch Extract Insights] Querying RAG for focus metrics...');
+    sendStatus('querying', 'Querying RAG for focus metrics...');
 
     // Query for focus metrics
     const metricsChunks = await groundingService.retrieveChunks(
@@ -3173,8 +3230,10 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
       10
     );
     console.log(`[Batch Extract Insights] Retrieved ${metricsChunks.length} metrics chunks`);
+    sendStatus('metrics', `Retrieved ${metricsChunks.length} metrics chunks`, { count: metricsChunks.length });
 
     console.log('[Batch Extract Insights] Querying RAG for technology partnerships...');
+    sendStatus('querying', 'Querying RAG for technology partnerships...');
 
     // Query for tech partnerships
     const techChunks = await groundingService.retrieveChunks(
@@ -3183,8 +3242,10 @@ router.post('/:idrssd/extract-insights-batch', async (req, res) => {
       10
     );
     console.log(`[Batch Extract Insights] Retrieved ${techChunks.length} tech partnership chunks`);
+    sendStatus('tech', `Retrieved ${techChunks.length} tech partnership chunks`, { count: techChunks.length });
 
     console.log('[Batch Extract Insights] Analyzing results with Claude...');
+    sendStatus('analyzing', 'Analyzing results with Claude API...');
 
     // Use Claude to analyze and structure the insights
     const ClaudeService = require('../services/claudeService');
@@ -3261,6 +3322,7 @@ Only include items that are explicitly mentioned in the context. Use exact quote
 
     const analysis = response.content[0].text;
     console.log(`[Batch Extract Insights] Received response from Claude (${analysis.length} chars)`);
+    sendStatus('parsing', 'Parsing Claude response...');
 
     // Parse the JSON response
     let insights;
@@ -3273,19 +3335,25 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       console.log(`  - Priorities: ${insights.priorities?.length || 0}`);
       console.log(`  - Focus Metrics: ${insights.focusMetrics?.length || 0}`);
       console.log(`  - Tech Partnerships: ${insights.techPartnerships?.length || 0}`);
+      sendStatus('parsed', 'Successfully parsed insights', {
+        priorities: insights.priorities?.length || 0,
+        focusMetrics: insights.focusMetrics?.length || 0,
+        techPartnerships: insights.techPartnerships?.length || 0
+      });
     } catch (parseError) {
       console.error('[Batch Extract Insights] Failed to parse Claude response:', parseError);
       console.error('[Batch Extract Insights] Raw response:', analysis.substring(0, 500));
       await metadata.updateResearchPhase('phase3', 'failed', {
         error: 'Failed to parse insights from AI response'
       });
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to parse insights from AI response'
-      });
+      clearInterval(heartbeatInterval);
+      sendStatus('error', 'Failed to parse insights from AI response');
+      res.end();
+      return;
     }
 
     console.log('[Batch Extract Insights] Saving insights to database...');
+    sendStatus('saving', 'Saving insights to database...');
 
     // Update metadata with insights
     await metadata.updateStrategicInsights({
@@ -3303,7 +3371,8 @@ Only include items that are explicitly mentioned in the context. Use exact quote
 
     console.log('[Batch Extract Insights] ✅ Insight extraction complete!');
 
-    res.json({
+    clearInterval(heartbeatInterval);
+    sendStatus('complete', 'Insight extraction complete', {
       success: true,
       insightsExtracted: true,
       documentCount,
@@ -3313,6 +3382,7 @@ Only include items that are explicitly mentioned in the context. Use exact quote
         techPartnerships: insights.techPartnerships || []
       }
     });
+    res.end();
 
   } catch (error) {
     console.error('[Batch Extract Insights] Error:', error);
@@ -3331,10 +3401,9 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       console.error('[Batch Extract Insights] Failed to update error status:', updateError);
     }
 
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to extract insights'
-    });
+    clearInterval(heartbeatInterval);
+    sendStatus('error', error.message || 'Failed to extract insights');
+    res.end();
   }
 });
 

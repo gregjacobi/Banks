@@ -260,25 +260,82 @@ async function extractInsightsForBank(bank, log) {
   log.info('Starting insight extraction from RAG documents...');
 
   try {
-    // Call the extract-insights-batch endpoint
-    const response = await withRetry(async () => {
-      return await axios.post(
-        `${API_BASE}/research/${bank.idrssd}/extract-insights-batch`,
-        {},
-        {
-          timeout: 300000, // 5 minute timeout
-          validateStatus: (status) => status < 500
-        }
-      );
-    }, 2, 5000); // 2 retries, 5 second delay
+    // SSE streaming endpoint for insight extraction
+    const response = await axios.post(
+      `${API_BASE}/research/${bank.idrssd}/extract-insights-batch`,
+      {},
+      {
+        timeout: 600000, // 10 minute timeout
+        responseType: 'stream' // Handle SSE stream
+      }
+    );
 
-    if (response.data.success) {
-      log.info(`Insight extraction completed: ${response.data.insights?.priorities?.length || 0} strategic priorities found`);
-      return { success: true, insights: response.data.insights };
+    // Parse SSE stream for Phase 2
+    let phase2Result = null;
+    await new Promise((resolve, reject) => {
+      let buffer = '';
+
+      response.data.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+
+              // Log progress updates
+              if (data.stage === 'init' || data.stage === 'starting' || data.stage === 'checking') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'found' || data.stage === 'querying') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'priorities' || data.stage === 'metrics' || data.stage === 'tech') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'analyzing' || data.stage === 'parsing' || data.stage === 'parsed') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'saving') {
+                log.info(`  ${data.message}`);
+              } else if (data.stage === 'complete') {
+                phase2Result = data;
+                log.info('Phase 2 completed successfully');
+                resolve();
+              } else if (data.stage === 'error') {
+                // Don't fail - just warn and continue
+                log.warn(`Phase 2 warning: ${data.message}`);
+                phase2Result = { success: true, insights: null, warning: data.message };
+                resolve();
+              }
+            } catch (parseError) {
+              // Ignore parse errors for heartbeat or malformed lines
+            }
+          }
+        }
+      });
+
+      response.data.on('end', () => {
+        if (!phase2Result) {
+          log.warn('Stream ended without completion - treating as non-fatal');
+          phase2Result = { success: true, insights: null, warning: 'Stream ended without completion' };
+        }
+        resolve();
+      });
+
+      response.data.on('error', (err) => {
+        log.warn(`Stream error (non-fatal): ${err.message}`);
+        phase2Result = { success: true, insights: null, warning: err.message };
+        resolve(); // Don't fail - continue to report generation
+      });
+    });
+
+    if (phase2Result && phase2Result.success) {
+      const priorityCount = phase2Result.insights?.priorities?.length || 0;
+      if (priorityCount > 0) {
+        log.info(`Phase 2 completed: ${priorityCount} strategic priorities found`);
+      }
+      return { success: true, insights: phase2Result.insights };
     } else {
-      log.warn(`Insight extraction returned no insights: ${response.data.error || 'Unknown error'}`);
-      // Don't fail the whole process if insights extraction fails - continue to report generation
-      return { success: true, insights: null, warning: response.data.error };
+      return { success: true, insights: null, warning: phase2Result?.warning || 'No insights extracted' };
     }
 
   } catch (error) {
@@ -311,25 +368,71 @@ async function generateReportForBank(bank, sessionId, log) {
   log.info('Generating AI research report (this may take 5-10 minutes)...');
 
   try {
-    // Use the batch endpoint (non-SSE, returns complete result)
-    const response = await withRetry(async () => {
-      return await axios.post(
-        `${API_BASE}/research/${bank.idrssd}/generate-agent-batch`,
-        { sessionId },
-        {
-          timeout: 900000, // 15 minute timeout (agent can take 10+ minutes)
-          validateStatus: (status) => status < 500 // Don't throw on 4xx errors
-        }
-      );
-    }, 2, 10000); // 2 retries, 10 second delay
+    // SSE streaming endpoint for report generation
+    const response = await axios.post(
+      `${API_BASE}/research/${bank.idrssd}/generate-agent-batch`,
+      { sessionId },
+      {
+        timeout: 1200000, // 20 minute timeout
+        responseType: 'stream' // Handle SSE stream
+      }
+    );
 
-    if (response.data.success && response.data.report) {
-      log.info('Research report generated successfully');
-      log.info(`Report timestamp: ${response.data.report.generatedAt}`);
-      return { success: true, report: response.data.report };
+    // Parse SSE stream for Phase 3
+    let phase3Result = null;
+    await new Promise((resolve, reject) => {
+      let buffer = '';
+
+      response.data.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+
+              // Log progress updates (agentReportService sends many stage updates)
+              if (data.message) {
+                log.info(`  ${data.message}`);
+              }
+
+              if (data.stage === 'complete') {
+                phase3Result = data;
+                log.info('Research report generated successfully');
+                if (data.report?.generatedAt) {
+                  log.info(`Report timestamp: ${data.report.generatedAt}`);
+                }
+                resolve();
+              } else if (data.stage === 'error') {
+                reject(new Error(data.message || 'Report generation failed'));
+              }
+            } catch (parseError) {
+              // Ignore parse errors for heartbeat or malformed lines
+            }
+          }
+        }
+      });
+
+      response.data.on('end', () => {
+        if (!phase3Result) {
+          reject(new Error('Stream ended without completion'));
+        } else {
+          resolve();
+        }
+      });
+
+      response.data.on('error', (err) => {
+        reject(err);
+      });
+    });
+
+    if (phase3Result && phase3Result.success && phase3Result.report) {
+      return { success: true, report: phase3Result.report };
     } else {
-      log.error(`Report generation failed: ${response.data.error || 'No report in response'}`);
-      return { success: false, error: response.data.error || 'No report in response' };
+      log.error(`Report generation failed: ${phase3Result?.error || 'No report in response'}`);
+      return { success: false, error: phase3Result?.error || 'No report in response' };
     }
 
   } catch (error) {
