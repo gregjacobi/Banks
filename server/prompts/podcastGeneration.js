@@ -83,12 +83,20 @@ ${groundingChunks.map((chunk, idx) => {
 ${chunk.content}`;
 }).join('\n\n')}
 
-These documents contain expert guidance on explaining banking concepts, discovery questions for sales professionals, and best practices for connecting financial metrics to business implications. Use this knowledge to enhance your explanations and make the podcast more valuable for AEs.\n`;
+These documents contain expert guidance on explaining banking concepts, discovery questions, and best practices for connecting financial metrics to business implications. Use this knowledge to enhance your explanations.\n`;
     }
 
-    return `Generate a 12-15 minute podcast script for "The Bankskie Show" analyzing ${bankName}.
+    return `Generate a TIGHT 8-10 minute podcast script for "The Bankskie Show" analyzing ${bankName}.
 
-**TARGET AUDIENCE:** Account executives and sales professionals preparing for customer discovery conversations. The podcast should enable them to have intelligent, consultative discussions about the bank's business priorities, challenges, and strategic direction.
+**TARGET AUDIENCE:** Professionals who want to deeply understand this bank - whether you're preparing for a sales conversation, evaluating a partnership, or looking for ways to help them improve through Anthropic's platform and capabilities. The hosts know their audience but speak to anyone who wants to understand and help this bank succeed.
+
+**CRITICAL - KEEP IT TIGHT:**
+- Target 2,000-2,400 words MAXIMUM (8-10 minutes at ~250 words/minute)
+- Avoid repetition - state key points ONCE with impact, don't re-explain
+- The Elevator Pitch is the OVERVIEW - don't repeat all the same content in detail later
+- Cut filler phrases like "here's the thing", "look", "I mean"
+- Each expert should add NEW insight, not just agree ("Exactly!", "That's right")
+- Discovery Questions should be QUICK - 1 sentence each, not paragraphs
 
 **Available Experts for This Episode:**
 ${selectedExpertsText}
@@ -102,7 +110,10 @@ ${JSON.stringify(trendsData, null, 2)}
 **CRITICAL METRIC INTERPRETATION - READ CAREFULLY:**
 When discussing financial metrics in the podcast, you MUST correctly interpret the direction:
 
-1. **Efficiency Ratio**: LOWER is better. A 45% efficiency ratio is excellent, while 75% is poor. When the efficiency ratio decreases, that's improvement. When it increases, that's worsening performance.
+1. **Efficiency Ratio**: LOWER is better. Formula: Operating Expenses / Total Revenue. A 45% efficiency ratio is excellent, while 75% is poor.
+   - **CRITICAL**: Efficiency ratio can improve via EITHER cutting expenses OR growing revenue. Don't just focus on expense cuts!
+   - Example: "They improved efficiency from 65% to 60%. That could mean they cut costs, but it could ALSO mean revenue grew faster than expenses. That's the better story - growth-driven efficiency."
+   - When discussing efficiency improvement, ALWAYS ask: "Is this from cost cuts or revenue growth?" - the answer matters for understanding management quality.
 
 2. **Operating Leverage**: HIGHER is better. Operating leverage measures how changes in revenue amplify changes in operating income (operational scalability). **Formula:** Operating Leverage = (YoY % Change in PPNR) / (YoY % Change in Total Revenue), where Total Revenue = Total Interest Income + Total Non-Interest Income, and PPNR (Pre-Provision Net Revenue) = Total Revenue - Total Operating Expenses. Higher values (> 1.0) indicate revenue changes have a magnified impact on operating income (positive leverage, EXCELLENT). Sustained operating leverage > 1.0 over multiple quarters indicates scalable, efficient operations. Example: "The bank achieved 2.0x operating leverage this quarter, meaning PPNR grew twice as fast as Total Revenue - that's exactly what you want to see."
 
@@ -124,7 +135,7 @@ When discussing ANY trend or improvement, you MUST provide peer comparison conte
 **Podcast Structure:**
 
 **[Intro - 30 seconds]**
-[BANKSKIE]: Welcome to The Bankskie Show! Quick intro with energy, mention this is a prep session for AEs who want to understand ${bankName}'s business.
+[BANKSKIE]: Welcome to The Bankskie Show! Quick intro with energy, mention this is a deep dive on ${bankName} for anyone looking to understand their business.
 
 **[Elevator Pitch - 2 minutes] (FIVE SECTIONS)**
 [BANKSKIE]: "Alright, here's what you NEED to know before walking into ${bankName}. I'm breaking this into five parts: who they are, who's running it, what's happening, where they're headed, and your Anthropic angle."
@@ -137,19 +148,19 @@ When discussing ANY trend or improvement, you MUST provide peer comparison conte
 - One sentence positioning: "This is a [type] bank focused on [differentiator]"
 
 **LEADERSHIP (20 seconds):**
-[BANKSKIE]: "Now let me tell you who you're dealing with..."
+[BANKSKIE]: "Now let me tell you who's running the show..."
 - CEO name and tenure (e.g., "John Smith has been CEO since 2019")
 - Any notable executive changes in the past 12-18 months
-- Key executives the AE might meet (CFO, CIO, Head of AI)
+- Key executives (CFO, CIO, Head of AI)
 - Leadership direction: "Under Smith, they've been pushing hard on digital transformation"
-- **If leadership info not available**: "We don't have detailed leadership info in our sources - that's something you'll want to research before your meeting"
+- **If leadership info not available**: "We don't have detailed leadership info in our sources - something to research before engaging with them"
 - **CITE YOUR SOURCE**: Mention where this info came from (e.g., "According to their 2024 annual report...")
 
 **KEY BUSINESS INSIGHTS (30 seconds):**
 [BANKSKIE]: "Now here's what's actually happening..."
 - 2-3 punchy insights with PEER COMPARISONS (e.g., "Their ROE is 9.2% vs 11% peer average - they're lagging")
 - Highlight one strength and one concern
-- Use language like "What this means for you..."
+- Connect the dots: "What this means is..."
 - **CITE YOUR SOURCES**: Reference Call Reports for financial data (e.g., "According to their Q2 2025 Call Report...")
 
 **FUTURE OUTLOOK (20 seconds):**
@@ -209,8 +220,8 @@ Frame as BUSINESS CHALLENGES and OPPORTUNITIES (not just financial risks). Make 
 - Use language like: "This is a pain point because..." or "They're probably getting pressure to..."
 - Quick comparison to competitors: "Compared to peers, they're lagging/leading in..."
 
-**[Discovery Questions for AEs - 2 minutes]**
-[BANKSKIE]: "Alright, you're walking into a meeting with ${bankName}. Here are the questions you should be asking..."
+**[Discovery Questions - 2 minutes]**
+[BANKSKIE]: "Alright, if you're going to engage with ${bankName}, here are the questions you should be asking..."
 - Have each expert suggest 1-2 thoughtful discovery questions from their perspective
 - Frame as: "Warren, what would YOU want to know about their capital strategy?"
 - Make questions open-ended and consultative (not product pitches)
@@ -233,29 +244,28 @@ Follow the classic communication structure throughout:
 3. "Tell them what you told them" → Outro (ACTION-ORIENTED closing, not just recap)
 
 **IMPORTANT GUIDELINES:**
-1. **CRITICAL**: Every expert that was selected MUST appear throughout the podcast with multiple speaking turns in EVERY section. Do not leave anyone out. If 4 experts are selected, all 4 must participate actively.
-2. **AE ENABLEMENT FOCUS**: This is a business prep tool. Frame insights as "What this means for your conversation..." or "Here's what to ask about..."
+1. **CRITICAL**: Every expert that was selected MUST appear throughout the podcast with multiple speaking turns. Do not leave anyone out.
+2. **ACTIONABLE INSIGHTS FOCUS**: This is a business intelligence tool. Frame insights as "What this means is..." or "The implication here is..." - make it useful for anyone engaging with this bank.
 3. Use specific data points from the report (cite numbers, percentages, trends) AND connect them to business implications
 4. Keep individual speaking turns SHORT (1-3 sentences max)
-5. Include natural reactions: "Wow, that's interesting because...", "Hold on, what about...", "Exactly!"
-6. Make Bankskie sharp and conversational - think All-In podcast style (casual but smart) - but remember this is prep for AEs
+5. **VARY YOUR LANGUAGE** - Don't use the same phrases every episode. Mix up:
+   - Instead of always "here's what you NEED to know" try: "let me give you the quick breakdown", "here's the intel", "the key things to understand"
+   - Instead of always "table stakes" try: "baseline requirement", "expected standard", "minimum bar"
+   - Instead of always "go get 'em" try: "you've got this", "knock it out of the park", "make it happen", "good luck out there"
+   - Instead of always "let's dig deeper" try: "let's unpack this", "let's get into the weeds", "here's where it gets interesting"
+   - Instead of always "that's exactly right" try: "spot on", "you nailed it", "that's the key insight", "bingo"
+   - Instead of always "I'm breaking this into five parts" try: "five things you need to know", "let me walk you through the essentials"
+6. Make Bankskie sharp and conversational - think All-In podcast style (casual but smart)
 7. Each expert has a distinct voice:
-   - Warren: Fast-talking finance bro - throws around terms like ROIC, multiple compression, capital allocation. Gets excited about numbers. Confident and direct. But also connects metrics to business decisions.
-   - Dr. Sofia: Educational, upbeat, explains concepts with enthusiasm and clarity. Helps AEs understand the "why" behind banking practices.
-   - Ava: Tech-forward, discusses innovation and AI. Spots digital transformation opportunities and gaps.
-   - Maya: Empathetic, customer-focused, practical impact. Helps AEs understand customer pain points.
+   - Warren: Fast-talking finance analyst - throws around investor terms. Gets excited about numbers. Confident and direct.
+   - Dr. Sofia: Educational, upbeat, explains concepts with enthusiasm and clarity.
+   - Ava: Tech-forward, discusses innovation and AI. Spots digital transformation opportunities.
+   - Maya: Empathetic, customer-focused, practical impact.
 8. NO markdown formatting, citations, or chart references - this is for audio
 9. Reference the bank by name frequently
-10. In the Discovery Questions section, make sure questions are:
-    - Open-ended (not yes/no)
-    - Consultative (not product pitches)
-    - Designed to uncover business priorities and challenges
-11. Total script should be approximately 3,000-3,500 words (12-15 minutes at ~250 words/minute)
-12. **VERIFY**: Before finishing, check that:
-    - EVERY selected expert has spoken at least 8-10 times throughout the episode
-    - The 3 elevator pitch points are clear and memorable
-    - At least 5-7 discovery questions are provided
-    - Business implications are connected to financial metrics throughout
+10. Discovery questions: Open-ended, consultative, 1 sentence each - useful for anyone engaging with the bank
+11. **Total script should be approximately 2,000-2,400 words (8-10 minutes at ~250 words/minute)**
+12. **VERIFY**: Before finishing, check that the script is TIGHT - no repetition, no filler, high signal-to-noise ratio
 
 **OUTPUT FORMAT REMINDER:**
 Start your response IMMEDIATELY with dialogue in this format:
@@ -303,12 +313,18 @@ ${groundingChunks.map((chunk, idx) => {
 ${chunk.content}`;
 }).join('\n\n')}
 
-These documents contain expert guidance on explaining banking concepts, discovery questions for sales professionals, and best practices for connecting financial metrics to business implications. Use this knowledge to enhance your explanations and make the podcast more valuable for AEs.\n`;
+These documents contain expert guidance on explaining banking concepts, discovery questions, and best practices for connecting financial metrics to business implications. Use this knowledge to enhance your explanations.\n`;
     }
 
-    return `Generate a 10-12 minute solo podcast script where Bankskie analyzes ${bankName} by himself as a prep session for account executives.
+    return `Generate a TIGHT 6-8 minute solo podcast script where Bankskie analyzes ${bankName} by himself - a deep dive for anyone looking to understand this bank and help them improve their business.
 
-**TARGET AUDIENCE:** Account executives and sales professionals preparing for customer discovery conversations.
+**TARGET AUDIENCE:** Professionals who want to deeply understand this bank - whether preparing for a sales conversation, evaluating a partnership, or looking for ways to help them succeed through Anthropic's platform.
+
+**CRITICAL - KEEP IT TIGHT:**
+- Target 1,500-2,000 words MAXIMUM (6-8 minutes)
+- No repetition - state key points ONCE with impact
+- Cut filler phrases
+- Discovery Questions should be QUICK - 1 sentence each
 
 **Bank Analysis:**
 ${reportAnalysis}
@@ -317,9 +333,11 @@ ${agentResearchSection}${groundingSection}
 **CRITICAL METRIC INTERPRETATION - READ CAREFULLY:**
 When discussing financial metrics, you MUST correctly interpret the direction:
 
-1. **Efficiency Ratio**: LOWER is better. A 45% efficiency ratio is excellent, while 75% is poor. When the efficiency ratio decreases, that's improvement.
+1. **Efficiency Ratio**: LOWER is better. Formula: Operating Expenses / Total Revenue.
+   - **CRITICAL**: Can improve via EITHER cutting expenses OR growing revenue. Don't just focus on expense cuts!
+   - Always ask: "Is this improvement from cost cuts or revenue growth?" - the answer matters.
 
-2. **Operating Leverage**: HIGHER is better. Operating leverage measures operational scalability. When revenue grows faster than expenses (positive operating leverage or values > 1.0), that's GOOD. Sustained positive operating leverage over multiple quarters indicates scalable operations.
+2. **Operating Leverage**: HIGHER is better. Measures operational scalability. Values > 1.0 mean PPNR growing faster than revenue - EXCELLENT.
 
 3. **ROE**: HIGHER is better. 4. **NIM**: HIGHER is better.
 
@@ -333,27 +351,23 @@ When discussing ANY trend or improvement, you MUST provide peer comparison conte
 - **Make it conversational:** "Sure, ROE went up from 8% to 10%, but the peer average jumped from 9% to 12%. They're falling behind."
 
 **Structure:**
-1. **Intro** (30 sec): Quick welcome, mention this is AE prep for ${bankName}
-2. **Elevator Pitch** (60 sec): THE 3 MUST-KNOW POINTS before meeting with ${bankName}. Frame as "What this means for you..."
+1. **Intro** (30 sec): Quick welcome, mention this is a deep dive on ${bankName}
+2. **Elevator Pitch** (60 sec): THE 3 MUST-KNOW POINTS about ${bankName}. Frame as "What this means is..."
 3. **Business Context** (2-3 min): What's driving their strategy, market pressures, priorities
 4. **Financial Deep Dive** (2-3 min): Metrics with business implications ("This NIM tells you they're hunting for...")
 5. **Pain Points & Opportunities** (2 min): Business challenges, technology gaps, competitive pressures
-6. **Discovery Questions** (2 min): 5-7 questions AEs should ask, with "listen for..." hints
+6. **Discovery Questions** (2 min): 5-7 questions to ask when engaging with this bank, with "listen for..." hints
 7. **Outro** (30 sec): Recap the 3 must-know points
 
 Bankskie should:
 - Lead with the elevator pitch right after intro
-- Be energetic and engaging as he walks through the analysis
-- Frame everything through the lens of "What does this mean for your customer conversation?"
-- Connect financial metrics to business needs: "They're likely looking for..."
-- Use phrases like "If I'm walking into this bank, I want to know..."
-- Suggest thoughtful discovery questions throughout
-- Use storytelling to make the data interesting
-- Ask rhetorical questions to engage listeners
-- Keep it conversational and accessible
-- Think like a sales enablement coach, not just an analyst
+- Be energetic and engaging
+- Frame everything through "What does this mean?" and "The implication here is..."
+- Connect financial metrics to business needs
+- Keep it TIGHT - no repetition, high signal-to-noise ratio
+- VARY phrases - don't always use "here's the thing", "table stakes", etc.
 
-Total script should be approximately 2,500-3,000 words.
+Total script should be approximately 1,500-2,000 words (6-8 minutes).
 
 **OUTPUT FORMAT REMINDER:**
 Start your response IMMEDIATELY with dialogue:
