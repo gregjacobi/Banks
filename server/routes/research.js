@@ -2207,6 +2207,16 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
 
     const reportData = latestReport.reportData;
 
+    // Validate that agent insights exist (podcast requires AI-generated report with insights)
+    const hasAgentInsights = reportData.agentInsights && reportData.agentInsights.length > 0;
+    if (!hasAgentInsights) {
+      sendStatus('error', 'Podcast generation requires an AI report with insights. Please generate an AI report first (not just a basic report).');
+      res.end();
+      return;
+    }
+
+    console.log(`[Podcast] Validated report has ${reportData.agentInsights.length} agent insights`);
+
     // Step 2: Generate podcast script
     sendStatus('script', 'Bankskie is preparing the show script...');
 
@@ -2412,6 +2422,14 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
     });
 
     const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
+
+    // Validate that agent insights exist (podcast requires AI-generated report with insights)
+    const hasAgentInsights = reportData.agentInsights && reportData.agentInsights.length > 0;
+    if (!hasAgentInsights) {
+      throw new Error('Podcast generation requires an AI report with insights. Please generate an AI report first (not just a basic report).');
+    }
+
+    console.log(`[Job ${jobId}] Validated report has ${reportData.agentInsights.length} agent insights`);
 
     let script, duration, stats, scriptFilename;
     const podcastScriptService = new PodcastScriptService();
