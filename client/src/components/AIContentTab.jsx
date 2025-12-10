@@ -36,9 +36,15 @@ import ShareIcon from '@mui/icons-material/Share';
 import LinkIcon from '@mui/icons-material/Link';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SlideshowIcon from '@mui/icons-material/Slideshow';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import DescriptionIcon from '@mui/icons-material/Description';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
 import ReportRenderer from './ReportRenderer';
 import FeedbackWidget from './FeedbackWidget';
-import EnhancedPodcastPlayer from './EnhancedPodcastPlayer';
 
 
 /**
@@ -386,6 +392,10 @@ function AIContentTab({ idrssd, bankName }) {
   const [shareMenuAnchor, setShareMenuAnchor] = useState(null);
   const shareMenuOpen = Boolean(shareMenuAnchor);
 
+  // Podcast controls
+  const [podcastMenuAnchor, setPodcastMenuAnchor] = useState(null);
+  const [transcriptDialogOpen, setTranscriptDialogOpen] = useState(null);
+
 
   // Load reports, podcasts, and presentations on mount
   useEffect(() => {
@@ -475,27 +485,137 @@ function AIContentTab({ idrssd, bankName }) {
   };
 
 
+  // Build the stream URL for opening in media player
+  const getStreamUrl = () => {
+    if (!currentPodcast?.url) return null;
+    // Convert download URL to stream URL
+    return currentPodcast.url.replace('/download/', '/stream/');
+  };
+
+  const handlePlayInMediaPlayer = () => {
+    const streamUrl = getStreamUrl();
+    if (streamUrl) {
+      // Open in new tab - browser will use device's media player
+      window.open(streamUrl, '_blank');
+    }
+  };
+
   return (
     <Box>
-      {/* Podcast Section - Minimal by default */}
+      {/* Podcast Section - Simple header with Play button and options menu */}
       {currentPodcast && (
         <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #d97757 0%, #c25a39 100%)' }}>
           <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-            <EnhancedPodcastPlayer
-              podcastUrl={currentPodcast.url}
-              transcript={currentPodcast.transcript}
-              duration={currentPodcast.duration}
-              bankName={bankName}
-              onOpenPersistent={handleOpenPersistentPlayer}
-              onDownloadMP3={handleDownloadMP3}
-              onRegenerate={handleOpenBuilder}
-              idrssd={idrssd}
-              currentReport={currentReport}
-              experts={currentPodcast.experts || []}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {/* Play Button */}
+              <Button
+                variant="contained"
+                startIcon={<PlayArrowIcon />}
+                onClick={handlePlayInMediaPlayer}
+                sx={{
+                  bgcolor: 'white',
+                  color: '#d97757',
+                  fontWeight: 600,
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                }}
+              >
+                Listen
+              </Button>
+
+              {/* Podcast Info */}
+              <Box sx={{ flex: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <PodcastsIcon sx={{ fontSize: 20, color: 'white' }} />
+                  <Typography variant="body1" sx={{ color: 'white', fontWeight: 600 }}>
+                    The Bankskie Show
+                  </Typography>
+                </Box>
+                <Typography variant="caption" sx={{ color: 'white', opacity: 0.8 }}>
+                  {currentPodcast.duration ? `~${currentPodcast.duration} min` : 'Ready to play'}
+                </Typography>
+              </Box>
+
+              {/* Options Menu */}
+              <IconButton
+                onClick={(e) => setPodcastMenuAnchor(e.currentTarget)}
+                sx={{ color: 'white' }}
+              >
+                <MoreVertIcon />
+              </IconButton>
+              <Menu
+                anchorEl={podcastMenuAnchor}
+                open={Boolean(podcastMenuAnchor)}
+                onClose={() => setPodcastMenuAnchor(null)}
+              >
+                <MenuItem onClick={() => {
+                  setPodcastMenuAnchor(null);
+                  setTranscriptDialogOpen(true);
+                }}>
+                  <DescriptionIcon sx={{ mr: 1, fontSize: 20 }} />
+                  View Transcript
+                </MenuItem>
+                <MenuItem onClick={() => {
+                  setPodcastMenuAnchor(null);
+                  handleDownloadMP3();
+                }}>
+                  <DownloadIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Download MP3
+                </MenuItem>
+              </Menu>
+            </Box>
           </CardContent>
         </Card>
       )}
+
+      {/* Transcript Dialog */}
+      <Dialog
+        open={transcriptDialogOpen}
+        onClose={() => setTranscriptDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PodcastsIcon sx={{ color: '#d97757' }} />
+          Podcast Transcript - {bankName}
+        </DialogTitle>
+        <DialogContent dividers>
+          {currentPodcast?.transcript ? (
+            <Box sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.6 }}>
+              {currentPodcast.transcript.split('\n').map((line, idx) => {
+                // Style speaker labels differently
+                const speakerMatch = line.match(/^\[([^\]]+)\]:/);
+                if (speakerMatch) {
+                  const speaker = speakerMatch[1];
+                  const text = line.substring(line.indexOf(':') + 1).trim();
+                  return (
+                    <Box key={idx} sx={{ mb: 2 }}>
+                      <Chip
+                        label={speaker}
+                        size="small"
+                        sx={{
+                          bgcolor: speaker === 'BANKSKIE' ? '#d97757' : '#666',
+                          color: 'white',
+                          fontWeight: 600,
+                          mb: 0.5
+                        }}
+                      />
+                      <Typography variant="body2" sx={{ pl: 1 }}>
+                        {text}
+                      </Typography>
+                    </Box>
+                  );
+                }
+                return line ? <Typography key={idx} variant="body2" sx={{ mb: 1 }}>{line}</Typography> : null;
+              })}
+            </Box>
+          ) : (
+            <Typography color="text.secondary">No transcript available</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTranscriptDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Report Section */}
       {currentReport ? (

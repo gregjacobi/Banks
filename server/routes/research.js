@@ -1954,12 +1954,44 @@ router.get('/:idrssd/podcast/latest', async (req, res) => {
     // Get file size to estimate duration (rough estimate: 1MB ≈ 1 minute)
     const estimatedDuration = Math.round(latestPodcastFile.length / 1024 / 1024); // MB as rough minutes
 
+    // Try to load the transcript from the script file
+    let transcript = null;
+    let experts = [];
+    try {
+      const scriptFiles = await listFilesInGridFS(getDocumentBucket(), {
+        'metadata.type': 'podcast-script',
+        'metadata.idrssd': idrssd
+      });
+
+      if (scriptFiles.length > 0) {
+        // Get the most recent script
+        const sortedScripts = scriptFiles.sort((a, b) => {
+          const partsA = a.filename.replace('.json', '').split('_');
+          const partsB = b.filename.replace('.json', '').split('_');
+          const timeA = parseInt(partsA[partsA.length - 1]);
+          const timeB = parseInt(partsB[partsB.length - 1]);
+          return timeB - timeA;
+        });
+
+        const scriptData = await loadJsonFromGridFS(getDocumentBucket(), sortedScripts[0].filename);
+        if (scriptData?.script?.fullText) {
+          transcript = scriptData.script.fullText;
+          experts = scriptData.experts || [];
+        }
+      }
+    } catch (scriptErr) {
+      console.log('Could not load transcript:', scriptErr.message);
+    }
+
     res.json({
       podcast: {
         url: `/api/research/${idrssd}/podcast/download/${latestPodcast}`,
+        streamUrl: `/api/research/${idrssd}/podcast/stream/${latestPodcast}`,
         duration: estimatedDuration,
         generatedAt: new Date(timestamp).toISOString(),
-        filename: latestPodcast
+        filename: latestPodcast,
+        transcript,
+        experts
       }
     });
   } catch (error) {
@@ -2042,6 +2074,44 @@ router.get('/:idrssd/podcast/download/:filename', async (req, res) => {
     downloadStream.pipe(res);
   } catch (error) {
     console.error('Error downloading podcast:', error);
+    res.status(404).json({ error: 'Podcast not found' });
+  }
+});
+
+/**
+ * GET /api/research/:idrssd/podcast/stream/:filename
+ * Stream a podcast file - opens directly in media player (no Content-Disposition)
+ */
+router.get('/:idrssd/podcast/stream/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+
+    // Get file metadata to check if it exists and get size
+    const files = await listFilesInGridFS(getAudioBucket(), { filename });
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'Podcast not found' });
+    }
+
+    const fileInfo = files[0];
+
+    // Set headers for inline playback (opens in player, not download)
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', fileInfo.length);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Disposition', 'inline'); // Key difference: inline instead of attachment
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+
+    // Stream the file from GridFS
+    const downloadStream = getAudioBucket().openDownloadStreamByName(filename);
+    downloadStream.on('error', (error) => {
+      console.error('Error streaming podcast:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream podcast' });
+      }
+    });
+    downloadStream.pipe(res);
+  } catch (error) {
+    console.error('Error streaming podcast:', error);
     res.status(404).json({ error: 'Podcast not found' });
   }
 });

@@ -6,6 +6,7 @@ const fs = require('fs').promises;
 const GroundingDocument = require('../models/GroundingDocument');
 const GroundingChunk = require('../models/GroundingChunk');
 const groundingService = require('../services/groundingService');
+const { uploadToGridFS } = require('../utils/gridfsUtils');
 
 // Configure multer for file uploads (using memoryStorage for GridFS)
 const storage = multer.memoryStorage();
@@ -38,24 +39,17 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
 
     console.log(`[API] Uploading document to GridFS: ${req.file.originalname}`);
 
-    // Upload file to GridFS
-    const { pdfBucket } = require('../config/gridfs');
-    const uploadStream = pdfBucket.openUploadStream(req.file.originalname, {
-      contentType: 'application/pdf',
-      metadata: {
-        uploadedAt: new Date(),
+    // Upload file to GridFS using shared utility
+    const gridfsFileId = await uploadToGridFS(
+      req.file.buffer,
+      req.file.originalname,
+      'application/pdf',
+      {
         originalName: req.file.originalname
       }
-    });
+    );
 
-    uploadStream.end(req.file.buffer);
-
-    await new Promise((resolve, reject) => {
-      uploadStream.on('finish', resolve);
-      uploadStream.on('error', reject);
-    });
-
-    console.log(`[API] File uploaded to GridFS with ID: ${uploadStream.id}`);
+    console.log(`[API] File uploaded to GridFS with ID: ${gridfsFileId}`);
 
     // Auto-suggest tags if not provided
     // Note: Auto-suggest now needs to work with GridFS, so we'll skip for now and use defaults
@@ -67,7 +61,7 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
       filename: req.file.originalname,
       title: title || req.file.originalname.replace('.pdf', ''),
       fileSize: req.file.size,
-      gridfsFileId: uploadStream.id,
+      gridfsFileId: gridfsFileId,
       contentType: 'application/pdf',
       topics: topics ? JSON.parse(topics) : suggestedTags.topics || [],
       bankTypes: bankTypes ? JSON.parse(bankTypes) : suggestedTags.bankTypes || [],

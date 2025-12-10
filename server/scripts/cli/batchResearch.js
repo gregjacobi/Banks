@@ -510,7 +510,11 @@ async function runPhase3ForBank(bank, sessionId, log, existingArtifacts = {}) {
       log.info('Step 2: Generating podcast script...');
       const podcastResponse = await axios.post(
         `${API_BASE}/research/${bank.idrssd}/podcast/generate-background`,
-        { experts: ['WARREN_VAULT'], scriptOnly: false }, // Generate both script and audio
+        {
+          // Include all available podcast guests for richer discussion
+          experts: ['WARREN_VAULT', 'DR_SOFIA_BANKS', 'AVA_AGENTIC', 'MAYA_CUSTOMER'],
+          scriptOnly: false
+        },
         { timeout: 180000 }
       );
       podcastScriptGenerated = podcastResponse.data?.success || false;
