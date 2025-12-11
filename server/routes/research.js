@@ -2475,22 +2475,35 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
       message: 'Loading research report...'
     });
 
-    const files = await listFilesInGridFS(getDocumentBucket(), {
-      filename: { $regex: `^${idrssd}_.*\\.json$` }
+    // First try to get agent reports (which have insights)
+    let files = await listFilesInGridFS(getDocumentBucket(), {
+      'metadata.idrssd': idrssd,
+      'metadata.type': 'agent-report'
     });
+
+    // Sort by upload date descending (most recent first)
+    files.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+
+    if (files.length === 0) {
+      // Fall back to legacy filename-based search
+      files = await listFilesInGridFS(getDocumentBucket(), {
+        filename: { $regex: `^${idrssd}_.*\\.json$` }
+      });
+      // Filter to just research/agent reports, exclude scripts, presentations, etc.
+      files = files.filter(f => {
+        const type = f.metadata?.type;
+        return type === 'agent-report' || type === 'research' || !type;
+      });
+      files.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+    }
+
     const bankReports = files.map(f => f.filename);
 
     if (bankReports.length === 0) {
       throw new Error('No research report found. Please generate a report first.');
     }
 
-    // Get most recent report
-    bankReports.sort((a, b) => {
-      const timeA = parseInt(a.split('_')[1].split('.')[0]);
-      const timeB = parseInt(b.split('_')[1].split('.')[0]);
-      return timeB - timeA;
-    });
-
+    console.log(`[Job ${jobId}] Found ${bankReports.length} reports, using: ${bankReports[0]}`);
     const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     // Validate that agent insights exist (podcast requires AI-generated report with insights)
