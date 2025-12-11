@@ -358,9 +358,12 @@ async function generateAgentReport(idrssd, sessionId = null, options = {}) {
     try {
       const researchReport = new ResearchReport({
         idrssd,
+        title: `AI Research Report - ${institution.name}`,
         reportData,
         gridfsFileId: fileId,
-        fileName
+        fileName,
+        agentVersion: 'v2.0',
+        generatedAt: new Date()
       });
       await researchReport.save();
       console.log(`[Agent Report Service] Saved report to ResearchReport collection`);
