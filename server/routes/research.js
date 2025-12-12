@@ -2261,21 +2261,41 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
       }
     };
 
-    // Step 1: Load existing research report from MongoDB
+    // Step 1: Load existing research report from GridFS (same approach as background endpoint)
     sendStatus('loading', 'Loading research report...');
 
-    const ResearchReport = require('../models/ResearchReport');
-    const latestReport = await ResearchReport.findOne({ idrssd })
-      .sort({ createdAt: -1 })
-      .lean();
+    // First try to get agent reports (which have insights)
+    let files = await listFilesInGridFS(getDocumentBucket(), {
+      'metadata.idrssd': idrssd,
+      'metadata.type': 'agent-report'
+    });
 
-    if (!latestReport) {
+    // Sort by upload date descending (most recent first)
+    files.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+
+    if (files.length === 0) {
+      // Fall back to legacy filename-based search
+      files = await listFilesInGridFS(getDocumentBucket(), {
+        filename: { $regex: `^${idrssd}_.*\\.json$` }
+      });
+      // Filter to just research/agent reports, exclude scripts, presentations, etc.
+      files = files.filter(f => {
+        const type = f.metadata?.type;
+        return type === 'agent-report' || type === 'research' || !type;
+      });
+      files.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+    }
+
+    const bankReports = files.map(f => f.filename);
+
+    if (bankReports.length === 0) {
       sendStatus('error', 'No research report found. Please generate a report first.');
       res.end();
       return;
     }
 
-    const reportData = latestReport.reportData;
+    console.log(`[Podcast SSE] Found ${bankReports.length} reports, using: ${bankReports[0]}`);
+    const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
     // Validate that agent insights exist (podcast requires AI-generated report with insights)
     const hasAgentInsights = reportData.agentInsights && reportData.agentInsights.length > 0;
