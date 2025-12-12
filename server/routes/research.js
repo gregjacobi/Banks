@@ -2297,15 +2297,13 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
     console.log(`[Podcast SSE] Found ${bankReports.length} reports, using: ${bankReports[0]}`);
     const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
-    // Validate that agent insights exist (podcast requires AI-generated report with insights)
+    // Log agent insights status (no longer required for podcast generation)
     const hasAgentInsights = reportData.agentInsights && reportData.agentInsights.length > 0;
-    if (!hasAgentInsights) {
-      sendStatus('error', 'Podcast generation requires an AI report with insights. Please generate an AI report first (not just a basic report).');
-      res.end();
-      return;
+    if (hasAgentInsights) {
+      console.log(`[Podcast] Report has ${reportData.agentInsights.length} agent insights`);
+    } else {
+      console.log(`[Podcast] Report does not have agent insights, proceeding anyway`);
     }
-
-    console.log(`[Podcast] Validated report has ${reportData.agentInsights.length} agent insights`);
 
     // Step 2: Generate podcast script
     sendStatus('script', 'Bankskie is preparing the show script...');
@@ -2526,13 +2524,13 @@ async function generatePodcastInBackground(idrssd, jobId, selectedExperts, optio
     console.log(`[Job ${jobId}] Found ${bankReports.length} reports, using: ${bankReports[0]}`);
     const reportData = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
 
-    // Validate that agent insights exist (podcast requires AI-generated report with insights)
+    // Log agent insights status (no longer required for podcast generation)
     const hasAgentInsights = reportData.agentInsights && reportData.agentInsights.length > 0;
-    if (!hasAgentInsights) {
-      throw new Error('Podcast generation requires an AI report with insights. Please generate an AI report first (not just a basic report).');
+    if (hasAgentInsights) {
+      console.log(`[Job ${jobId}] Report has ${reportData.agentInsights.length} agent insights`);
+    } else {
+      console.log(`[Job ${jobId}] Report does not have agent insights, proceeding anyway`);
     }
-
-    console.log(`[Job ${jobId}] Validated report has ${reportData.agentInsights.length} agent insights`);
 
     let script, duration, stats, scriptFilename;
     const podcastScriptService = new PodcastScriptService();
