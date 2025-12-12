@@ -2746,6 +2746,16 @@ router.get('/:idrssd/gather-sources', async (req, res) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Send heartbeat every 25 seconds to prevent Heroku H15 idle connection timeout
+    const heartbeatInterval = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25000);
+
+    // Clean up heartbeat on connection close
+    res.on('close', () => {
+      clearInterval(heartbeatInterval);
+    });
+
     sendEvent('progress', { progress: 0, message: 'Starting source gathering...' });
 
     // Always search all 4 streamlined categories (focused on high-quality, recent sources)
@@ -2909,10 +2919,12 @@ router.get('/:idrssd/gather-sources', async (req, res) => {
     });
 
     sendEvent('complete', { message: 'Source gathering complete' });
+    clearInterval(heartbeatInterval);
     res.end();
 
   } catch (error) {
     console.error('Error in gather-sources:', error);
+    clearInterval(heartbeatInterval);
     res.status(500).json({ error: 'Failed to gather sources' });
   }
 });
