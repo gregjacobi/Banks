@@ -5477,10 +5477,38 @@ router.post('/:idrssd/refresh-rag', async (req, res) => {
  */
 router.post('/:idrssd/delete-insights', async (req, res) => {
   try {
-    // TODO: Implement insights deletion
+    const { idrssd } = req.params;
+    console.log(`[Delete Insights] Deleting insights for bank ${idrssd}`);
+
+    const BankMetadata = require('../models/BankMetadata');
+
+    // Find the bank metadata
+    const metadata = await BankMetadata.findOne({ idrssd });
+    if (!metadata) {
+      return res.status(404).json({
+        success: false,
+        error: 'Bank metadata not found'
+      });
+    }
+
+    // Clear the strategic insights
+    metadata.strategicInsights = {
+      priorities: [],
+      focusMetrics: [],
+      techPartnerships: [],
+      status: null,
+      lastExtracted: null,
+      extractionError: null,
+      source: null,
+      extractionMethodology: null
+    };
+
+    await metadata.save();
+    console.log(`[Delete Insights] Successfully deleted insights for bank ${idrssd}`);
+
     res.json({
       success: true,
-      message: 'Insights deleted'
+      message: 'Insights deleted successfully'
     });
   } catch (error) {
     console.error('[Delete Insights] Error:', error);
