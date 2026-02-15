@@ -107,11 +107,11 @@ router.get('/', async (req, res) => {
         offset: parseInt(offset)
       });
     } else {
-      // For search queries, use original approach
-      const institutions = await Institution.find(query)
+      // For search queries, sort by text relevance score
+      const institutions = await Institution.find(query, { score: { $meta: 'textScore' } })
         .limit(parseInt(limit))
         .skip(parseInt(offset))
-        .sort({ name: 1 });
+        .sort({ score: { $meta: 'textScore' } });
 
       const idrssds = institutions.map(inst => inst.idrssd);
       const financialStatements = await FinancialStatement.find({
