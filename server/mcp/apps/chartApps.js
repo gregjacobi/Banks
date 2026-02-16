@@ -9,6 +9,7 @@ const APP_RESOURCES = [
   { name: 'credit-quality', uri: 'ui://bank-explorer/credit-quality.html', file: 'credit-quality.html' },
   { name: 'tam-dashboard', uri: 'ui://bank-explorer/tam-dashboard.html', file: 'tam-dashboard.html' },
   { name: 'dynamic-chart', uri: 'ui://bank-explorer/dynamic-chart.html', file: 'dynamic-chart.html' },
+  { name: 'research-report', uri: 'ui://bank-explorer/research-report.html', file: 'research-report.html' },
 ];
 
 function register(server) {

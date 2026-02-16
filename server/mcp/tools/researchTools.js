@@ -8,11 +8,16 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 function register(server) {
   // get-research-report: load latest report from GridFS
-  server.tool(
+  // Returns compact metadata (under 5MB) + renders full report in MCP App
+  server.registerTool(
     'get-research-report',
-    'Get the latest research report for a bank. Reports contain AI-generated analysis of the bank\'s financial performance, strategy, and outlook.',
     {
-      idrssd: z.string().describe('Bank ID'),
+      title: 'Get Research Report',
+      description: 'Get the latest research report for a bank. Reports contain AI-generated analysis of the bank\'s financial performance, strategy, and outlook. The full report renders in an interactive viewer.',
+      inputSchema: {
+        idrssd: z.string().describe('Bank ID'),
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/research-report.html' } },
     },
     async ({ idrssd }) => {
       try {
@@ -30,10 +35,23 @@ function register(server) {
 
         const report = await loadJsonFromGridFS(bucket, files[0].filename);
 
+        // Determine the API base URL for the MCP App to fetch the full report
+        const apiBaseUrl = process.env.HEROKU_APP_URL
+          || process.env.API_BASE_URL
+          || `http://localhost:${process.env.PORT || 5000}`;
+
+        // Return compact metadata — the MCP App fetches the full report via HTTP
+        const preview = typeof report.analysis === 'string'
+          ? report.analysis.substring(0, 2000) + (report.analysis.length > 2000 ? '\n\n... [full report available in viewer]' : '')
+          : '';
+
         const result = {
-          filename: files[0].filename,
-          uploadDate: files[0].uploadDate?.toISOString(),
-          report,
+          idrssd,
+          bankName: report.bankName || idrssd,
+          generatedAt: report.generatedAt || files[0].uploadDate?.toISOString(),
+          apiBaseUrl,
+          insightCount: Array.isArray(report.agentInsights) ? report.agentInsights.length : 0,
+          preview,
         };
 
         return {
