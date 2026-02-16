@@ -498,36 +498,48 @@ router.get('/:idrssd/latest', async (req, res) => {
     const files = await listFilesInGridFS(getDocumentBucket(), {
       filename: { $regex: `^${idrssd}_.*\\.json$` }
     });
-    const bankReports = files.map(f => f.filename);
+    // Filter out presentation files
+    const bankReports = files
+      .filter(f => !f.filename.includes('_presentation_'))
+      .map(f => f.filename);
 
-    if (bankReports.length === 0) {
-      return res.status(404).json({
-        error: 'No research reports found',
-        hasReport: false
+    if (bankReports.length > 0) {
+      // Sort by timestamp (filename format: idrssd_timestamp.json or idrssd_agent_timestamp.json)
+      bankReports.sort((a, b) => {
+        const partsA = a.replace('.json', '').split('_');
+        const partsB = b.replace('.json', '').split('_');
+        const timeA = parseInt(partsA[partsA.length - 1]);
+        const timeB = parseInt(partsB[partsB.length - 1]);
+        return timeB - timeA;
+      });
+
+      const report = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
+      return res.json({
+        hasReport: true,
+        report,
+        generatedAt: report.generatedAt,
+        fileName: bankReports[0]
       });
     }
 
-    // Sort by timestamp (filename format: idrssd_timestamp.json or idrssd_agent_timestamp.json)
-    bankReports.sort((a, b) => {
-      // Extract timestamp from filename, handling both formats
-      const partsA = a.replace('.json', '').split('_');
-      const partsB = b.replace('.json', '').split('_');
+    // Fallback to ResearchReport collection
+    const ResearchReport = require('../models/ResearchReport');
+    const dbReport = await ResearchReport.findOne({ idrssd })
+      .sort({ createdAt: -1 })
+      .lean();
 
-      // Timestamp is last element
-      const timeA = parseInt(partsA[partsA.length - 1]);
-      const timeB = parseInt(partsB[partsB.length - 1]);
+    if (dbReport && dbReport.reportData) {
+      return res.json({
+        hasReport: true,
+        report: dbReport.reportData,
+        generatedAt: dbReport.reportData.generatedAt || dbReport.createdAt?.toISOString(),
+        source: 'database'
+      });
+    }
 
-      return timeB - timeA; // Most recent first
-    });
-
-    // Read the most recent report from GridFS
-    const report = await loadJsonFromGridFS(getDocumentBucket(), bankReports[0]);
-
-    res.json({
-      hasReport: true,
-      report,
-      generatedAt: report.generatedAt,
-      fileName: bankReports[0]
+    return res.status(404).json({
+      error: 'No research reports found',
+      hasReport: false
     });
 
   } catch (error) {

@@ -2,6 +2,7 @@ const { z } = require('zod');
 const Institution = require('../../models/Institution');
 const BankMetadata = require('../../models/BankMetadata');
 const Source = require('../../models/Source');
+const ResearchReport = require('../../models/ResearchReport');
 const gridfs = require('../../config/gridfs');
 const { listFilesInGridFS, loadJsonFromGridFS } = require('../../utils/gridfsHelpers');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -21,19 +22,42 @@ function register(server, registerAppTool) {
     },
     async ({ idrssd }) => {
       try {
+        let report = null;
+        let generatedAt = null;
+        let source = 'gridfs';
+
+        // Try GridFS first (primary storage)
         const bucket = gridfs.documentBucket;
         const files = await listFilesInGridFS(bucket, {
           filename: { $regex: new RegExp('^' + idrssd + '_.*\\.json$') }
         });
 
-        if (!files || files.length === 0) {
-          return { content: [{ type: 'text', text: `No research report found for bank ${idrssd}.` }] };
+        if (files && files.length > 0) {
+          // Filter out presentation files
+          const reportFiles = files.filter(f => !f.filename.includes('_presentation_'));
+          if (reportFiles.length > 0) {
+            reportFiles.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+            report = await loadJsonFromGridFS(bucket, reportFiles[0].filename);
+            generatedAt = report?.generatedAt || reportFiles[0].uploadDate?.toISOString();
+          }
         }
 
-        // Sort by upload date descending (most recent first)
-        files.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
+        // Fallback to ResearchReport collection
+        if (!report) {
+          const dbReport = await ResearchReport.findOne({ idrssd })
+            .sort({ createdAt: -1 })
+            .lean();
 
-        const report = await loadJsonFromGridFS(bucket, files[0].filename);
+          if (dbReport && dbReport.reportData) {
+            report = dbReport.reportData;
+            generatedAt = report.generatedAt || dbReport.createdAt?.toISOString();
+            source = 'database';
+          }
+        }
+
+        if (!report) {
+          return { content: [{ type: 'text', text: `No research report found for bank ${idrssd}.` }] };
+        }
 
         // Determine the API base URL for the MCP App to fetch the full report
         const apiBaseUrl = process.env.HEROKU_APP_URL
@@ -48,9 +72,10 @@ function register(server, registerAppTool) {
         const result = {
           idrssd,
           bankName: report.bankName || idrssd,
-          generatedAt: report.generatedAt || files[0].uploadDate?.toISOString(),
+          generatedAt,
           apiBaseUrl,
           insightCount: Array.isArray(report.agentInsights) ? report.agentInsights.length : 0,
+          source,
           preview,
         };
 
@@ -193,7 +218,7 @@ function register(server, registerAppTool) {
       try {
         const bucket = gridfs.documentBucket;
         const files = await listFilesInGridFS(bucket, {
-          filename: { $regex: new RegExp('^presentation_' + idrssd + '_.*\\.json$') }
+          filename: { $regex: new RegExp('^' + idrssd + '_presentation_.*\\.json$') }
         });
 
         if (!files || files.length === 0) {
