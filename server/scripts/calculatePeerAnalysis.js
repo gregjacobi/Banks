@@ -15,6 +15,18 @@ if (isProduction) {
   console.log('🔧 Running in DEVELOPMENT mode');
 }
 
+// Parse --bank flag for single-bank mode
+const bankFlagIdx = process.argv.indexOf('--bank');
+const singleBankId = bankFlagIdx !== -1 ? process.argv[bankFlagIdx + 1] : null;
+
+// Parse --period flag for single-period mode
+const periodFlagIdx = process.argv.indexOf('--period');
+const singlePeriod = periodFlagIdx !== -1 ? process.argv[periodFlagIdx + 1] : null;
+
+// Parse --top flag (default 100)
+const topFlagIdx = process.argv.indexOf('--top');
+const TOP_N = topFlagIdx !== -1 ? parseInt(process.argv[topFlagIdx + 1]) || 100 : 100;
+
 /**
  * Calculate peer analysis for all banks
  * Finds 10 larger and 10 smaller peers by total assets
@@ -40,6 +52,23 @@ const METRICS = [
   'operatingLeverage'
 ];
 
+// Map metric names to their document paths for use in aggregation
+const METRIC_PATHS = {
+  totalAssets: '$balanceSheet.assets.totalAssets',
+  totalLoans: '$balanceSheet.assets.earningAssets.loansAndLeases.net',
+  totalDeposits: '$balanceSheet.liabilities.deposits.total',
+  totalEquity: '$balanceSheet.equity.totalEquity',
+  netIncome: '$incomeStatement.netIncome',
+  netInterestIncome: '$incomeStatement.netInterestIncome',
+  noninterestIncome: '$incomeStatement.noninterestIncome.total',
+  noninterestExpense: '$incomeStatement.noninterestExpense.total',
+  roe: '$ratios.roe',
+  roa: '$ratios.roa',
+  nim: '$ratios.netInterestMargin',
+  efficiencyRatio: '$ratios.efficiencyRatio',
+  operatingLeverage: '$ratios.operatingLeverage'
+};
+
 async function connectDB() {
   try {
     await mongoose.connect(MONGODB_URI);
@@ -51,46 +80,45 @@ async function connectDB() {
 }
 
 /**
- * Extract metric value from financial statement
+ * Extract metric value from a lean statement object
  */
-function extractMetric(statement, metricName) {
+function extractMetricFromLean(stmt, metricName) {
   switch (metricName) {
     case 'totalAssets':
-      return statement.balanceSheet?.assets?.totalAssets || 0;
+      return stmt.balanceSheet?.assets?.totalAssets || 0;
     case 'totalLoans':
-      return statement.balanceSheet?.assets?.earningAssets?.loansAndLeases?.net || 0;
+      return stmt.balanceSheet?.assets?.earningAssets?.loansAndLeases?.net || 0;
     case 'totalDeposits':
-      return statement.balanceSheet?.liabilities?.deposits?.total || 0;
+      return stmt.balanceSheet?.liabilities?.deposits?.total || 0;
     case 'totalEquity':
-      return statement.balanceSheet?.equity?.totalEquity || 0;
+      return stmt.balanceSheet?.equity?.totalEquity || 0;
     case 'netIncome':
-      return statement.incomeStatement?.netIncome || 0;
+      return stmt.incomeStatement?.netIncome || 0;
     case 'netInterestIncome':
-      return statement.incomeStatement?.netInterestIncome || 0;
+      return stmt.incomeStatement?.netInterestIncome || 0;
     case 'noninterestIncome':
-      return statement.incomeStatement?.noninterestIncome?.total || 0;
+      return stmt.incomeStatement?.noninterestIncome?.total || 0;
     case 'noninterestExpense':
-      return statement.incomeStatement?.noninterestExpense?.total || 0;
+      return stmt.incomeStatement?.noninterestExpense?.total || 0;
     case 'roe':
-      return statement.ratios?.roe || null;
+      return stmt.ratios?.roe || null;
     case 'roa':
-      return statement.ratios?.roa || null;
+      return stmt.ratios?.roa || null;
     case 'nim':
-      return statement.ratios?.netInterestMargin || null;
+      return stmt.ratios?.netInterestMargin || null;
     case 'efficiencyRatio':
-      return statement.ratios?.efficiencyRatio || null;
+      return stmt.ratios?.efficiencyRatio || null;
     case 'operatingLeverage':
-      return statement.ratios?.operatingLeverage || null;
+      return stmt.ratios?.operatingLeverage || null;
     default:
       return null;
   }
 }
 
 /**
- * Find peer banks for a given bank
+ * Find peer banks for a given bank (10 larger + 10 smaller by assets)
  */
 async function findPeers(targetIdrssd, targetAssets, reportingPeriod) {
-  // Find 10 banks larger than target
   const largerBanks = await FinancialStatement.aggregate([
     {
       $match: {
@@ -99,18 +127,11 @@ async function findPeers(targetIdrssd, targetAssets, reportingPeriod) {
         'balanceSheet.assets.totalAssets': { $gt: targetAssets }
       }
     },
-    {
-      $sort: { 'balanceSheet.assets.totalAssets': 1 } // Ascending - closest to target first
-    },
-    {
-      $limit: 10
-    },
-    {
-      $project: { idrssd: 1, _id: 0 }
-    }
+    { $sort: { 'balanceSheet.assets.totalAssets': 1 } },
+    { $limit: 10 },
+    { $project: { idrssd: 1, _id: 0 } }
   ]);
 
-  // Find 10 banks smaller than target
   const smallerBanks = await FinancialStatement.aggregate([
     {
       $match: {
@@ -119,15 +140,9 @@ async function findPeers(targetIdrssd, targetAssets, reportingPeriod) {
         'balanceSheet.assets.totalAssets': { $lt: targetAssets }
       }
     },
-    {
-      $sort: { 'balanceSheet.assets.totalAssets': -1 } // Descending - closest to target first
-    },
-    {
-      $limit: 10
-    },
-    {
-      $project: { idrssd: 1, _id: 0 }
-    }
+    { $sort: { 'balanceSheet.assets.totalAssets': -1 } },
+    { $limit: 10 },
+    { $project: { idrssd: 1, _id: 0 } }
   ]);
 
   return {
@@ -138,13 +153,15 @@ async function findPeers(targetIdrssd, targetAssets, reportingPeriod) {
 }
 
 /**
- * Calculate peer averages for all metrics at a given reporting period
+ * Calculate peer averages using only the peer statements (lean query with projection)
  */
 async function calculatePeerAverages(peerIds, reportingPeriod) {
   const statements = await FinancialStatement.find({
     idrssd: { $in: peerIds },
     reportingPeriod: new Date(reportingPeriod)
-  });
+  })
+    .select('idrssd balanceSheet incomeStatement ratios')
+    .lean();
 
   if (statements.length === 0) {
     return null;
@@ -154,7 +171,7 @@ async function calculatePeerAverages(peerIds, reportingPeriod) {
 
   METRICS.forEach(metric => {
     const values = statements
-      .map(stmt => extractMetric(stmt, metric))
+      .map(stmt => extractMetricFromLean(stmt, metric))
       .filter(val => val !== null && val !== undefined && !isNaN(val));
 
     if (values.length > 0) {
@@ -168,66 +185,34 @@ async function calculatePeerAverages(peerIds, reportingPeriod) {
 }
 
 /**
- * Calculate stack ranking for a bank across all peers for a given metric
- * DEPRECATED - Use calculateAllRankings instead for better performance
+ * Calculate rankings using aggregation pipeline (memory efficient)
+ * Instead of loading all 5000+ documents, we use MongoDB aggregation
+ * to compute ranks server-side.
  */
-async function calculateRanking(targetIdrssd, metric, reportingPeriod) {
-  const statements = await FinancialStatement.find({
-    reportingPeriod: new Date(reportingPeriod)
-  });
+async function calculateAllRankings(targetIdrssd, reportingPeriod) {
+  const rankings = {};
+  const period = new Date(reportingPeriod);
 
-  const values = statements
-    .map(stmt => ({
-      idrssd: stmt.idrssd,
-      value: extractMetric(stmt, metric)
-    }))
-    .filter(item => item.value !== null && item.value !== undefined && !isNaN(item.value));
-
-  // Sort by value (higher is better for most metrics except efficiency ratio)
-  const isLowerBetter = metric === 'efficiencyRatio';
-  values.sort((a, b) => isLowerBetter ? a.value - b.value : b.value - a.value);
-
-  // Find target bank's rank
-  const rank = values.findIndex(item => item.idrssd === targetIdrssd) + 1;
-  const total = values.length;
-  const percentile = total > 0 ? ((total - rank + 1) / total) * 100 : null;
-
-  return {
-    rank,
-    total,
-    percentile: percentile ? Math.round(percentile) : null,
-    value: values.find(item => item.idrssd === targetIdrssd)?.value || null
-  };
-}
-
-/**
- * Calculate all rankings for a bank in a single pass (OPTIMIZED)
- * Fetches all statements once and calculates rankings for all metrics
- */
-async function calculateAllRankings(targetIdrssd, reportingPeriod, statements = null) {
-  // If statements not provided, fetch them (but caller should provide to avoid duplicate fetches)
-  if (!statements) {
-    statements = await FinancialStatement.find({
-      reportingPeriod: new Date(reportingPeriod)
-    });
+  // Build a single aggregation that extracts all metrics we need
+  const metricProjection = { idrssd: 1 };
+  for (const [name, docPath] of Object.entries(METRIC_PATHS)) {
+    metricProjection[name] = docPath;
   }
 
-  const rankings = {};
+  // Fetch only the metric fields we need (much smaller than full documents)
+  const allBanks = await FinancialStatement.aggregate([
+    { $match: { reportingPeriod: period } },
+    { $project: metricProjection }
+  ]);
 
-  // Calculate rankings for each metric
   for (const metric of METRICS) {
-    const values = statements
-      .map(stmt => ({
-        idrssd: stmt.idrssd,
-        value: extractMetric(stmt, metric)
-      }))
+    const values = allBanks
+      .map(b => ({ idrssd: b.idrssd, value: b[metric] }))
       .filter(item => item.value !== null && item.value !== undefined && !isNaN(item.value));
 
-    // Sort by value (higher is better for most metrics except efficiency ratio)
     const isLowerBetter = metric === 'efficiencyRatio';
     values.sort((a, b) => isLowerBetter ? a.value - b.value : b.value - a.value);
 
-    // Find target bank's rank
     const rank = values.findIndex(item => item.idrssd === targetIdrssd) + 1;
     const total = values.length;
     const percentile = total > 0 ? ((total - rank + 1) / total) * 100 : null;
@@ -246,13 +231,26 @@ async function calculateAllRankings(targetIdrssd, reportingPeriod, statements = 
 /**
  * Generate complete peer analysis for a bank
  */
-async function generatePeerAnalysis(idrssd, institution) {
+async function generatePeerAnalysis(idrssd, institution, periodsToProcess) {
   const institutionName = institution?.name || idrssd;
   console.log(`\n📊 [${idrssd}] ${institutionName}`);
 
-  // Get all reporting periods for this bank
-  const statements = await FinancialStatement.find({ idrssd })
-    .sort({ reportingPeriod: 1 });
+  // Get reporting periods for this bank
+  let statements;
+  if (periodsToProcess) {
+    statements = await FinancialStatement.find({
+      idrssd,
+      reportingPeriod: { $in: periodsToProcess.map(p => new Date(p)) }
+    })
+      .select('reportingPeriod balanceSheet.assets.totalAssets')
+      .sort({ reportingPeriod: 1 })
+      .lean();
+  } else {
+    statements = await FinancialStatement.find({ idrssd })
+      .select('reportingPeriod balanceSheet.assets.totalAssets')
+      .sort({ reportingPeriod: 1 })
+      .lean();
+  }
 
   if (statements.length === 0) {
     console.log(`  ⚠️  No financial statements found`);
@@ -267,7 +265,7 @@ async function generatePeerAnalysis(idrssd, institution) {
 
   for (const statement of statements) {
     const period = statement.reportingPeriod;
-    const targetAssets = extractMetric(statement, 'totalAssets');
+    const targetAssets = statement.balanceSheet?.assets?.totalAssets || 0;
 
     console.log(`  → ${period.toISOString().split('T')[0]} ($${(targetAssets / 1000).toFixed(1)}M)`);
 
@@ -279,15 +277,16 @@ async function generatePeerAnalysis(idrssd, institution) {
       continue;
     }
 
-    // Calculate peer averages
+    // Calculate peer averages (only loads peer statements, not all banks)
     const peerAverages = await calculatePeerAverages(peers.all, period);
 
-    // OPTIMIZED: Calculate all rankings in a single pass
-    // Fetch all statements for this period once, then calculate all rankings
-    const allStatementsForPeriod = await FinancialStatement.find({
-      reportingPeriod: period
-    });
-    const rankings = await calculateAllRankings(idrssd, period, allStatementsForPeriod);
+    // Calculate rankings using aggregation (memory efficient)
+    const rankings = await calculateAllRankings(idrssd, period);
+
+    // Get the target bank's own metrics for this period
+    const fullStmt = await FinancialStatement.findOne({ idrssd, reportingPeriod: period })
+      .select('balanceSheet incomeStatement ratios')
+      .lean();
 
     peerAnalysis.periods.push({
       reportingPeriod: period,
@@ -295,12 +294,12 @@ async function generatePeerAnalysis(idrssd, institution) {
         count: peers.all.length,
         largerCount: peers.larger.length,
         smallerCount: peers.smaller.length,
-        peerIds: peers.all  // Store the actual peer IDs
+        peerIds: peers.all
       },
       peerAverages,
       rankings,
       bankMetrics: METRICS.reduce((acc, metric) => {
-        acc[metric] = extractMetric(statement, metric);
+        acc[metric] = extractMetricFromLean(fullStmt, metric);
         return acc;
       }, {})
     });
@@ -310,23 +309,64 @@ async function generatePeerAnalysis(idrssd, institution) {
 }
 
 /**
- * Generate peer analysis for all banks (with parallel processing)
+ * Save peer analysis results to financial statements
+ */
+async function savePeerAnalysis(analysis) {
+  for (const period of analysis.periods) {
+    await FinancialStatement.updateOne(
+      {
+        idrssd: analysis.idrssd,
+        reportingPeriod: period.reportingPeriod
+      },
+      {
+        $set: {
+          peerAnalysis: {
+            peers: period.peers,
+            peerAverages: period.peerAverages,
+            rankings: period.rankings,
+            generatedAt: analysis.generatedAt
+          }
+        }
+      }
+    );
+  }
+}
+
+/**
+ * Generate peer analysis for a single bank
+ */
+async function generateSingleBankPeerAnalysis(idrssd) {
+  const institution = await Institution.findOne({ idrssd }).select('idrssd name').lean();
+  if (!institution) {
+    console.error(`Bank not found: ${idrssd}`);
+    return;
+  }
+
+  const periodsToProcess = singlePeriod ? [singlePeriod] : null;
+  const analysis = await generatePeerAnalysis(idrssd, institution, periodsToProcess);
+
+  if (analysis && analysis.periods.length > 0) {
+    await savePeerAnalysis(analysis);
+    console.log(`\n✅ Peer analysis saved for ${institution.name} (${analysis.periods.length} periods)`);
+  } else {
+    console.log(`\n⚠️  No peer analysis generated for ${institution.name}`);
+  }
+}
+
+/**
+ * Generate peer analysis for all banks
  */
 async function generateAllPeerAnalyses() {
   console.log('🏦 Starting peer analysis generation for all banks...\n');
 
-  // Get all unique banks that have financial statements
   const uniqueBanks = await FinancialStatement.distinct('idrssd');
-
   console.log(`Found ${uniqueBanks.length} banks with financial data\n`);
 
-  // Get institution names and latest assets for sorting
   const institutions = await Institution.find({ idrssd: { $in: uniqueBanks } })
     .select('idrssd name')
     .lean();
   const institutionMap = new Map(institutions.map(i => [i.idrssd, i]));
 
-  // Get latest total assets for each bank to sort by size
   console.log('📊 Sorting banks by total assets...\n');
   const latestStatements = await FinancialStatement.aggregate([
     { $match: { idrssd: { $in: uniqueBanks } } },
@@ -336,53 +376,32 @@ async function generateAllPeerAnalyses() {
         latestAssets: { $first: '$balanceSheet.assets.totalAssets' }
       }
     },
-    { $sort: { latestAssets: -1 } }  // Sort largest to smallest
+    { $sort: { latestAssets: -1 } }
   ]);
 
   const sortedBanks = latestStatements.map(s => s._id);
   console.log(`Sorted ${sortedBanks.length} banks by asset size (largest first)\n`);
 
-  // Limit to top 100 banks
-  const TOP_N = 100;
   const banksToProcess = sortedBanks.slice(0, TOP_N);
   console.log(`Processing top ${banksToProcess.length} banks\n`);
 
   let processed = 0;
   let errors = 0;
 
-  // Process banks sequentially (one at a time) to avoid memory issues
+  const periodsToProcess = singlePeriod ? [singlePeriod] : null;
+
   for (let i = 0; i < banksToProcess.length; i++) {
     const idrssd = banksToProcess[i];
     const bankNum = i + 1;
 
     console.log(`\n🏦 Bank ${bankNum}/${banksToProcess.length}`);
 
-    // Process one bank at a time
     try {
       const institution = institutionMap.get(idrssd);
-      const analysis = await generatePeerAnalysis(idrssd, institution);
+      const analysis = await generatePeerAnalysis(idrssd, institution, periodsToProcess);
 
       if (analysis && analysis.periods.length > 0) {
-        // Store peer analysis in the financial statements
-        for (const period of analysis.periods) {
-          await FinancialStatement.updateOne(
-            {
-              idrssd: analysis.idrssd,
-              reportingPeriod: period.reportingPeriod
-            },
-            {
-              $set: {
-                peerAnalysis: {
-                  peers: period.peers,
-                  peerAverages: period.peerAverages,
-                  rankings: period.rankings,
-                  generatedAt: analysis.generatedAt
-                }
-              }
-            }
-          );
-        }
-
+        await savePeerAnalysis(analysis);
         processed++;
         console.log(`    ✓ ${institution?.name || idrssd} (${processed}/${banksToProcess.length})`);
       }
@@ -399,9 +418,21 @@ async function generateAllPeerAnalyses() {
 
 // Main execution
 async function main() {
+  if (singleBankId) {
+    console.log(`\n🎯 Single bank mode: ${singleBankId}`);
+    if (singlePeriod) console.log(`   Period: ${singlePeriod}`);
+  } else {
+    console.log(`\n📋 Processing top ${TOP_N} banks`);
+    if (singlePeriod) console.log(`   Period: ${singlePeriod}`);
+  }
+
   try {
     await connectDB();
-    await generateAllPeerAnalyses();
+    if (singleBankId) {
+      await generateSingleBankPeerAnalysis(singleBankId);
+    } else {
+      await generateAllPeerAnalyses();
+    }
   } catch (error) {
     console.error('Fatal error:', error);
   } finally {
