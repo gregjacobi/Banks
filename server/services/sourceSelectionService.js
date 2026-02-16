@@ -581,7 +581,7 @@ Be practical but maintain quality standards. A good report requires good sources
 
     try {
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'fennec-v7-fast',
         max_tokens: 4096,
         temperature: 0.3,
         messages: [{

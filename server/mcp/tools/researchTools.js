@@ -214,7 +214,7 @@ function register(server) {
         const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-5-20250514',
+          model: 'fennec-v7-fast',
           max_tokens: 1024,
           messages: [{
             role: 'user',
