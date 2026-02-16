@@ -2,7 +2,7 @@ const { z } = require('zod');
 const Institution = require('../../models/Institution');
 const FinancialStatement = require('../../models/FinancialStatement');
 
-function register(server) {
+function register(server, registerAppTool) {
   // search-banks: fuzzy name search, returns ranked results
   server.tool(
     'search-banks',
@@ -65,7 +65,7 @@ function register(server) {
   );
 
   // get-bank-financials: full financial picture for a bank
-  server.registerTool(
+  registerAppTool(server,
     'get-bank-financials',
     {
       title: 'Get Bank Financials',
@@ -120,7 +120,7 @@ function register(server) {
   );
 
   // get-time-series: multi-quarter trend data
-  server.registerTool(
+  registerAppTool(server,
     'get-time-series',
     {
       title: 'Get Time Series',
@@ -182,7 +182,7 @@ function register(server) {
   );
 
   // get-peer-comparison: target bank vs 20 peers
-  server.registerTool(
+  registerAppTool(server,
     'get-peer-comparison',
     {
       title: 'Get Peer Comparison',

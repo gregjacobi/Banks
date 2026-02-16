@@ -6,10 +6,10 @@ const gridfs = require('../../config/gridfs');
 const { listFilesInGridFS, loadJsonFromGridFS } = require('../../utils/gridfsHelpers');
 const Anthropic = require('@anthropic-ai/sdk');
 
-function register(server) {
+function register(server, registerAppTool) {
   // get-research-report: load latest report from GridFS
   // Returns compact metadata (under 5MB) + renders full report in MCP App
-  server.registerTool(
+  registerAppTool(server,
     'get-research-report',
     {
       title: 'Get Research Report',

@@ -2,7 +2,7 @@ const { z } = require('zod');
 const tamCalculationService = require('../../services/tamCalculationService');
 const TeamRoster = require('../../models/TeamRoster');
 
-function register(server) {
+function register(server, registerAppTool) {
   // get-tam-dashboard: TAM summary for all banks
   server.tool(
     'get-tam-dashboard',
@@ -32,7 +32,7 @@ function register(server) {
   );
 
   // get-bank-tam: detailed TAM for one bank
-  server.registerTool(
+  registerAppTool(server,
     'get-bank-tam',
     {
       title: 'Get Bank TAM',

@@ -15,23 +15,28 @@ const chartApps = require('./apps/chartApps');
  * Create a fresh McpServer instance with all tools and resources registered.
  * A new instance is needed per request for stateless (sessionless) operation,
  * because McpServer.connect() can only be called once per instance.
+ *
+ * @param {Function} McpServer - McpServer constructor (ESM import)
+ * @param {Function} registerAppTool - ext-apps helper for tool registration
+ * @param {Function} registerAppResource - ext-apps helper for resource registration
  */
-function createServer(McpServer) {
+function createServer(McpServer, registerAppTool, registerAppResource) {
   const server = new McpServer({
     name: 'Bank Explorer',
     version: '1.0.0',
   });
 
-  // Register all data tools
-  bankTools.register(server);
-  researchTools.register(server);
-  tamTools.register(server);
+  // Register all data tools (pass registerAppTool to modules that have UI-linked tools)
+  bankTools.register(server, registerAppTool);
+  researchTools.register(server, registerAppTool);
+  tamTools.register(server, registerAppTool);
   ubprTools.register(server);
   strategicTools.register(server);
   ragTools.register(server);
 
-  // Register render-chart tool (generic dynamic chart)
-  server.registerTool(
+  // Register render-chart tool using ext-apps helper
+  registerAppTool(
+    server,
     'render-chart',
     {
       title: 'Render Chart',
@@ -57,24 +62,25 @@ function createServer(McpServer) {
   );
 
   // Register MCP App resources (serves built HTML files)
-  chartApps.register(server);
+  chartApps.register(server, registerAppResource);
 
   return server;
 }
 
 /**
  * Mount MCP server on an Express app at /mcp
- * Uses dynamic import() for ESM-only MCP SDK
+ * Uses dynamic import() for ESM-only MCP SDK and ext-apps
  */
 async function mount(expressApp) {
   const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
   const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
+  const { registerAppTool, registerAppResource } = await import('@modelcontextprotocol/ext-apps/server');
 
   // Mount Streamable HTTP endpoint
   // Each request gets a fresh McpServer instance (stateless, no sessions)
   expressApp.post('/mcp', async (req, res) => {
     try {
-      const server = createServer(McpServer);
+      const server = createServer(McpServer, registerAppTool, registerAppResource);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
