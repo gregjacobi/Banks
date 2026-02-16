@@ -31,12 +31,16 @@ function register(server) {
   );
 
   // get-bank-tam: detailed TAM for one bank
-  server.tool(
+  server.registerTool(
     'get-bank-tam',
-    'Get detailed TAM breakdown for a specific bank including product-level revenue estimates, penetration assumptions, and quarterly projections.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
-      period: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+      title: 'Get Bank TAM',
+      description: 'Get detailed TAM breakdown for a specific bank including product-level revenue estimates, penetration assumptions, and quarterly projections.',
+      inputSchema: {
+        idrssd: { type: 'string', description: 'Bank ID' },
+        period: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/tam-dashboard.html' } },
     },
     async ({ idrssd, period }) => {
       try {

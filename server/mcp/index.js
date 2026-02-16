@@ -23,7 +23,7 @@ async function mount(expressApp) {
     version: '1.0.0',
   });
 
-  // Register all tools
+  // Register all data tools
   bankTools.register(server);
   researchTools.register(server);
   tamTools.register(server);
@@ -31,7 +31,33 @@ async function mount(expressApp) {
   strategicTools.register(server);
   ragTools.register(server);
 
-  // Register MCP App resources
+  // Register render-chart tool (generic dynamic chart)
+  server.registerTool(
+    'render-chart',
+    {
+      title: 'Render Chart',
+      description: 'Render a custom interactive chart from a JSON specification. Use this to visualize any data — the agent constructs the chart spec and an interactive Recharts chart is rendered for the user.',
+      inputSchema: {
+        title: { type: 'string', description: 'Chart title' },
+        chartType: { type: 'string', description: 'Chart type: line, bar, area, scatter, pie, or composed' },
+        data: { type: 'array', description: 'Array of data points (objects with keys matching series)' },
+        series: { type: 'array', description: 'Array of {key, name, color?, type?} for each data series' },
+        xAxis: { type: 'object', description: '{key, label} for X axis' },
+        yAxis: { type: 'object', description: '{label, format} where format is percent|currency|number' },
+        subtitle: { type: 'string', description: 'Optional subtitle' },
+        stacked: { type: 'boolean', description: 'Stack series (default false)' },
+        height: { type: 'number', description: 'Chart height in pixels (default 400)' },
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/dynamic-chart.html' } },
+    },
+    async (args) => {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(args, null, 2) }],
+      };
+    }
+  );
+
+  // Register MCP App resources (serves built HTML files)
   chartApps.register(server);
 
   // Mount Streamable HTTP endpoint

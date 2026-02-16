@@ -64,12 +64,16 @@ function register(server) {
   );
 
   // get-bank-financials: full financial picture for a bank
-  server.tool(
+  server.registerTool(
     'get-bank-financials',
-    'Get complete financial data for a bank: balance sheet, income statement, ratios, credit quality, and loan categories. Defaults to the most recent reporting period.',
     {
-      idrssd: { type: 'string', description: 'Bank ID (from search-banks results)' },
-      reportingPeriod: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+      title: 'Get Bank Financials',
+      description: 'Get complete financial data for a bank: balance sheet, income statement, ratios, credit quality, and loan categories. Defaults to the most recent reporting period.',
+      inputSchema: {
+        idrssd: { type: 'string', description: 'Bank ID (from search-banks results)' },
+        reportingPeriod: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/credit-quality.html' } },
     },
     async ({ idrssd, reportingPeriod }) => {
       try {
@@ -115,12 +119,16 @@ function register(server) {
   );
 
   // get-time-series: multi-quarter trend data
-  server.tool(
+  server.registerTool(
     'get-time-series',
-    'Get multi-quarter financial trend data for a bank. Returns time series of key metrics sorted oldest to newest. Use for trend analysis and charting.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
-      periodCount: { type: 'number', description: 'Number of quarters to return (default 8)' },
+      title: 'Get Time Series',
+      description: 'Get multi-quarter financial trend data for a bank. Returns time series of key metrics sorted oldest to newest. Use for trend analysis and charting.',
+      inputSchema: {
+        idrssd: { type: 'string', description: 'Bank ID' },
+        periodCount: { type: 'number', description: 'Number of quarters to return (default 8)' },
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/trends-chart.html' } },
     },
     async ({ idrssd, periodCount = 8 }) => {
       try {
@@ -173,11 +181,15 @@ function register(server) {
   );
 
   // get-peer-comparison: target bank vs 20 peers
-  server.tool(
+  server.registerTool(
     'get-peer-comparison',
-    'Compare a bank against its 20 asset-size peers across key financial ratios. Returns the target bank, peer averages, and individual peer data.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      title: 'Get Peer Comparison',
+      description: 'Compare a bank against its 20 asset-size peers across key financial ratios. Returns the target bank, peer averages, and individual peer data.',
+      inputSchema: {
+        idrssd: { type: 'string', description: 'Bank ID' },
+      },
+      _meta: { ui: { resourceUri: 'ui://bank-explorer/peer-comparison.html' } },
     },
     async ({ idrssd }) => {
       try {
