@@ -47,5 +47,4 @@ data/
 skill-packages/
 
 # MCP Apps
-mcp-apps/dist/
 mcp-apps/node_modules/
