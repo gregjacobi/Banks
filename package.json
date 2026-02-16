@@ -12,7 +12,7 @@
     "server": "PORT=5000 nodemon server/index.js",
     "client": "cd client && PORT=3000 npm start",
     "build": "cd client && npm run build",
-    "heroku-postbuild": "cd client && npm install && npm run build",
+    "heroku-postbuild": "cd client && npm install && npm run build && cd ../mcp-apps && npm install && npm run build",
     "install-all": "npm install && cd client && npm install",
     "calc-leverage": "node server/scripts/calculateOperatingLeverage.js",
     "calc-peers": "node server/scripts/calculatePeerAnalysis.js",

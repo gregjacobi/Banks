@@ -78,9 +78,10 @@ async function mount(expressApp) {
     }
   });
 
-  // GET/DELETE not supported for stateless server
+  // Handle GET /mcp — required by MCP spec for SSE fallback discovery.
+  // Respond with 405 + proper headers so clients know to use POST.
   expressApp.get('/mcp', (req, res) => {
-    res.status(405).json({
+    res.status(405).set('Allow', 'POST').json({
       jsonrpc: '2.0',
       error: { code: -32000, message: 'Method not allowed. Use POST for MCP requests.' },
       id: null,
@@ -88,11 +89,27 @@ async function mount(expressApp) {
   });
 
   expressApp.delete('/mcp', (req, res) => {
-    res.status(405).json({
+    res.status(405).set('Allow', 'POST').json({
       jsonrpc: '2.0',
       error: { code: -32000, message: 'Session management not supported (stateless server).' },
       id: null,
     });
+  });
+
+  // OAuth Protected Resource Metadata (RFC 9728)
+  // Claude.ai probes these endpoints to discover auth requirements.
+  // Return 404 to signal this is an unauthenticated server.
+  expressApp.get('/.well-known/oauth-protected-resource', (req, res) => {
+    res.status(404).json({ error: 'This MCP server does not require authentication.' });
+  });
+  expressApp.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
+    res.status(404).json({ error: 'This MCP server does not require authentication.' });
+  });
+  expressApp.get('/.well-known/oauth-authorization-server', (req, res) => {
+    res.status(404).json({ error: 'This MCP server does not require authentication.' });
+  });
+  expressApp.get('/.well-known/openid-configuration', (req, res) => {
+    res.status(404).json({ error: 'This MCP server does not require authentication.' });
   });
 
   console.log('MCP server mounted at /mcp');
