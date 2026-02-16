@@ -5,7 +5,8 @@
   "ext": "js,json",
   "ignore": [
     "server/data/**",
-    "node_modules/**"
+    "node_modules/**",
+    "mcp-apps/**"
   ],
   "delay": 500,
   "verbose": false

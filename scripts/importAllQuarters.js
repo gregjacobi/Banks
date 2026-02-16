@@ -66,7 +66,8 @@ async function importAllQuarters() {
       // 2025
       { date: '2025-03-31', dir: 'FFIEC CDR Call Bulk All Schedules 03312025', suffix: '03312025' },
       { date: '2025-06-30', dir: 'FFIEC CDR Call Bulk All Schedules 06302025', suffix: '06302025' },
-      { date: '2025-09-30', dir: 'FFIEC CDR Call Bulk All Schedules 09302025', suffix: '09302025' }
+      { date: '2025-09-30', dir: 'FFIEC CDR Call Bulk All Schedules 09302025', suffix: '09302025' },
+      { date: '2025-12-31', dir: 'FFIEC CDR Call Bulk All Schedules 12312025', suffix: '12312025' }
     ];
 
     let totalInstitutions = 0;

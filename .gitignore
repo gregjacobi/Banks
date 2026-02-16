@@ -45,3 +45,7 @@ data/
 # Claude Code - Skill Development (temp directories only)
 *-skill/
 skill-packages/
+
+# MCP Apps
+mcp-apps/dist/
+mcp-apps/node_modules/
