@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const tamCalculationService = require('../../services/tamCalculationService');
 const TeamRoster = require('../../models/TeamRoster');
 
@@ -7,10 +8,10 @@ function register(server) {
     'get-tam-dashboard',
     'Get Total Addressable Market (TAM) dashboard showing TAM calculations for all tracked banks. Returns bank-level TAM estimates sorted by opportunity size.',
     {
-      limit: { type: 'number', description: 'Max banks to return (default 100)' },
-      minAssets: { type: 'number', description: 'Minimum total assets filter in dollars (default 0)' },
-      sortBy: { type: 'string', description: 'Sort field: tam, totalAssets, or name (default tam)' },
-      sortOrder: { type: 'string', description: 'Sort order: asc or desc (default desc)' },
+      limit: z.number().optional().describe('Max banks to return (default 100)'),
+      minAssets: z.number().optional().describe('Minimum total assets filter in dollars (default 0)'),
+      sortBy: z.string().optional().describe('Sort field: tam, totalAssets, or name (default tam)'),
+      sortOrder: z.string().optional().describe('Sort order: asc or desc (default desc)'),
     },
     async ({ limit = 100, minAssets = 0, sortBy = 'tam', sortOrder = 'desc' }) => {
       try {
@@ -37,8 +38,8 @@ function register(server) {
       title: 'Get Bank TAM',
       description: 'Get detailed TAM breakdown for a specific bank including product-level revenue estimates, penetration assumptions, and quarterly projections.',
       inputSchema: {
-        idrssd: { type: 'string', description: 'Bank ID' },
-        period: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+        idrssd: z.string().describe('Bank ID'),
+        period: z.string().optional().describe('Optional reporting period (YYYY-MM-DD). Defaults to latest.'),
       },
       _meta: { ui: { resourceUri: 'ui://bank-explorer/tam-dashboard.html' } },
     },
@@ -83,7 +84,7 @@ function register(server) {
     'get-revenue-pipeline',
     'Get revenue pipeline projections based on team capacity and hiring plan. Shows quarterly and yearly revenue forecasts accounting for hiring ramp.',
     {
-      targetBankCount: { type: 'number', description: 'Target number of banks to cover (optional)' },
+      targetBankCount: z.number().optional().describe('Target number of banks to cover (optional)'),
     },
     async ({ targetBankCount }) => {
       try {
@@ -120,7 +121,7 @@ function register(server) {
     'get-team-sizing',
     'Get team sizing analysis showing how many AEs and SEs are needed to cover the bank portfolio, broken down by tier. Includes current roster and hiring gaps.',
     {
-      targetBankCount: { type: 'number', description: 'Target number of banks to cover (optional)' },
+      targetBankCount: z.number().optional().describe('Target number of banks to cover (optional)'),
     },
     async ({ targetBankCount }) => {
       try {

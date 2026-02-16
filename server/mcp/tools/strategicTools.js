@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const StrategicPrioritiesAnalysis = require('../../models/StrategicPrioritiesAnalysis');
 const BankMetadata = require('../../models/BankMetadata');
 const Institution = require('../../models/Institution');
@@ -8,7 +9,7 @@ function register(server) {
     'get-strategic-priorities',
     'Get strategic priorities analysis. Without an idrssd, returns the latest industry-wide analysis of banking strategic priorities. With an idrssd, returns bank-specific priorities alongside industry context.',
     {
-      idrssd: { type: 'string', description: 'Optional bank ID for bank-specific priorities. Omit for industry-wide analysis.' },
+      idrssd: z.string().optional().describe('Optional bank ID for bank-specific priorities. Omit for industry-wide analysis.'),
     },
     async ({ idrssd }) => {
       try {
@@ -80,7 +81,7 @@ function register(server) {
     'search-priorities',
     'Search across strategic priorities for specific topics, technologies, or themes. Returns matching priorities from the latest industry analysis.',
     {
-      query: { type: 'string', description: 'Search query (e.g., "AI", "digital transformation", "core banking")' },
+      query: z.string().describe('Search query (e.g., "AI", "digital transformation", "core banking")'),
     },
     async ({ query }) => {
       try {

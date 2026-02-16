@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { z } = require('zod');
 
 // Tool registration modules
 const bankTools = require('./tools/bankTools');
@@ -38,15 +39,15 @@ async function mount(expressApp) {
       title: 'Render Chart',
       description: 'Render a custom interactive chart from a JSON specification. Use this to visualize any data — the agent constructs the chart spec and an interactive Recharts chart is rendered for the user.',
       inputSchema: {
-        title: { type: 'string', description: 'Chart title' },
-        chartType: { type: 'string', description: 'Chart type: line, bar, area, scatter, pie, or composed' },
-        data: { type: 'array', description: 'Array of data points (objects with keys matching series)' },
-        series: { type: 'array', description: 'Array of {key, name, color?, type?} for each data series' },
-        xAxis: { type: 'object', description: '{key, label} for X axis' },
-        yAxis: { type: 'object', description: '{label, format} where format is percent|currency|number' },
-        subtitle: { type: 'string', description: 'Optional subtitle' },
-        stacked: { type: 'boolean', description: 'Stack series (default false)' },
-        height: { type: 'number', description: 'Chart height in pixels (default 400)' },
+        title: z.string().describe('Chart title'),
+        chartType: z.string().describe('Chart type: line, bar, area, scatter, pie, or composed'),
+        data: z.array(z.record(z.string(), z.unknown())).describe('Array of data points (objects with keys matching series)'),
+        series: z.array(z.object({ key: z.string(), name: z.string(), color: z.string().optional(), type: z.string().optional() })).describe('Array of series definitions'),
+        xAxis: z.object({ key: z.string(), label: z.string() }).describe('X axis configuration'),
+        yAxis: z.object({ label: z.string(), format: z.string().optional() }).describe('Y axis configuration (format: percent|currency|number)'),
+        subtitle: z.string().optional().describe('Optional subtitle'),
+        stacked: z.boolean().optional().describe('Stack series (default false)'),
+        height: z.number().optional().describe('Chart height in pixels (default 400)'),
       },
       _meta: { ui: { resourceUri: 'ui://bank-explorer/dynamic-chart.html' } },
     },

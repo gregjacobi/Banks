@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const groundingService = require('../../services/groundingService');
 
 function register(server) {
@@ -6,9 +7,9 @@ function register(server) {
     'search-documents',
     'Search across uploaded research documents using semantic (vector) search. Returns relevant document chunks with source attribution. Useful for finding specific information from analyst reports, earnings transcripts, and other research PDFs.',
     {
-      query: { type: 'string', description: 'Natural language search query' },
-      idrssd: { type: 'string', description: 'Optional bank ID to filter results to a specific bank' },
-      limit: { type: 'number', description: 'Max chunks to return (default 5)' },
+      query: z.string().describe('Natural language search query'),
+      idrssd: z.string().optional().describe('Optional bank ID to filter results to a specific bank'),
+      limit: z.number().optional().describe('Max chunks to return (default 5)'),
     },
     async ({ query, idrssd, limit = 5 }) => {
       try {

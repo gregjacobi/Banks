@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const FinancialStatement = require('../../models/FinancialStatement');
 const Institution = require('../../models/Institution');
 const ubprService = require('../../services/ubprService');
@@ -8,8 +9,8 @@ function register(server) {
     'compare-ubpr',
     'Compare our calculated financial ratios with FFIEC UBPR (Uniform Bank Performance Report) data for validation. Shows side-by-side comparison with variance analysis.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
-      period: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+      idrssd: z.string().describe('Bank ID'),
+      period: z.string().optional().describe('Optional reporting period (YYYY-MM-DD). Defaults to latest.'),
     },
     async ({ idrssd, period }) => {
       try {

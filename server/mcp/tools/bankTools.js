@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const Institution = require('../../models/Institution');
 const FinancialStatement = require('../../models/FinancialStatement');
 
@@ -7,9 +8,9 @@ function register(server) {
     'search-banks',
     'Search for banks by name. Returns matching banks ranked by relevance with key financial metrics. Use this first to find a bank\'s idrssd ID, then use other tools with that ID.',
     {
-      query: { type: 'string', description: 'Bank name to search for (fuzzy matching)' },
-      state: { type: 'string', description: 'Optional 2-letter state code to filter by' },
-      limit: { type: 'number', description: 'Max results to return (default 10)' },
+      query: z.string().describe('Bank name to search for (fuzzy matching)'),
+      state: z.string().optional().describe('Optional 2-letter state code to filter by'),
+      limit: z.number().optional().describe('Max results to return (default 10)'),
     },
     async ({ query, state, limit = 10 }) => {
       try {
@@ -70,8 +71,8 @@ function register(server) {
       title: 'Get Bank Financials',
       description: 'Get complete financial data for a bank: balance sheet, income statement, ratios, credit quality, and loan categories. Defaults to the most recent reporting period.',
       inputSchema: {
-        idrssd: { type: 'string', description: 'Bank ID (from search-banks results)' },
-        reportingPeriod: { type: 'string', description: 'Optional reporting period (YYYY-MM-DD). Defaults to latest.' },
+        idrssd: z.string().describe('Bank ID (from search-banks results)'),
+        reportingPeriod: z.string().optional().describe('Optional reporting period (YYYY-MM-DD). Defaults to latest.'),
       },
       _meta: { ui: { resourceUri: 'ui://bank-explorer/credit-quality.html' } },
     },
@@ -125,8 +126,8 @@ function register(server) {
       title: 'Get Time Series',
       description: 'Get multi-quarter financial trend data for a bank. Returns time series of key metrics sorted oldest to newest. Use for trend analysis and charting.',
       inputSchema: {
-        idrssd: { type: 'string', description: 'Bank ID' },
-        periodCount: { type: 'number', description: 'Number of quarters to return (default 8)' },
+        idrssd: z.string().describe('Bank ID'),
+        periodCount: z.number().optional().describe('Number of quarters to return (default 8)'),
       },
       _meta: { ui: { resourceUri: 'ui://bank-explorer/trends-chart.html' } },
     },
@@ -187,7 +188,7 @@ function register(server) {
       title: 'Get Peer Comparison',
       description: 'Compare a bank against its 20 asset-size peers across key financial ratios. Returns the target bank, peer averages, and individual peer data.',
       inputSchema: {
-        idrssd: { type: 'string', description: 'Bank ID' },
+        idrssd: z.string().describe('Bank ID'),
       },
       _meta: { ui: { resourceUri: 'ui://bank-explorer/peer-comparison.html' } },
     },

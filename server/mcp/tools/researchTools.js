@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const Institution = require('../../models/Institution');
 const BankMetadata = require('../../models/BankMetadata');
 const Source = require('../../models/Source');
@@ -11,7 +12,7 @@ function register(server) {
     'get-research-report',
     'Get the latest research report for a bank. Reports contain AI-generated analysis of the bank\'s financial performance, strategy, and outlook.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      idrssd: z.string().describe('Bank ID'),
     },
     async ({ idrssd }) => {
       try {
@@ -49,7 +50,7 @@ function register(server) {
     'get-bank-metadata',
     'Get metadata for a bank including strategic priorities, technology partnerships, key executives, and other qualitative information gathered from research.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      idrssd: z.string().describe('Bank ID'),
     },
     async ({ idrssd }) => {
       try {
@@ -86,7 +87,7 @@ function register(server) {
     'get-sources',
     'Get research sources collected for a bank. Returns the latest session\'s sources including URLs, titles, and content summaries.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      idrssd: z.string().describe('Bank ID'),
     },
     async ({ idrssd }) => {
       try {
@@ -129,7 +130,7 @@ function register(server) {
     'get-podcast-info',
     'Get information about the latest podcast generated for a bank, including stream URL and metadata.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      idrssd: z.string().describe('Bank ID'),
     },
     async ({ idrssd }) => {
       try {
@@ -168,7 +169,7 @@ function register(server) {
     'get-presentation',
     'Get the latest presentation generated for a bank. Returns slide data and metadata.',
     {
-      idrssd: { type: 'string', description: 'Bank ID' },
+      idrssd: z.string().describe('Bank ID'),
     },
     async ({ idrssd }) => {
       try {
@@ -207,7 +208,7 @@ function register(server) {
     'define-financial-term',
     'Get a clear definition and explanation of a banking or financial term. Useful for understanding metrics, ratios, and industry terminology.',
     {
-      term: { type: 'string', description: 'The financial or banking term to define' },
+      term: z.string().describe('The financial or banking term to define'),
     },
     async ({ term }) => {
       try {
