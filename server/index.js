@@ -58,6 +58,10 @@ app.use('/api/tam', tamRouter);
 app.use('/api/team', teamRouter);
 app.use('/api/strategic-priorities', strategicPrioritiesRouter);
 
+// MCP Server
+const mcp = require('./mcp');
+mcp.mount(app).catch(err => console.error('Failed to mount MCP server:', err));
+
 app.get('/api/hello', (req, res) => {
   res.json({
     message: 'Hello World! Bank Explorer API is running.',
