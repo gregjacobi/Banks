@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "node build-all.js",
+    "build:single": "vite build",
     "dev": "vite build --watch"
   },
   "dependencies": {
