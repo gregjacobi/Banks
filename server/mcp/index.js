@@ -12,13 +12,11 @@ const ragTools = require('./tools/ragTools');
 const chartApps = require('./apps/chartApps');
 
 /**
- * Mount MCP server on an Express app at /mcp
- * Uses dynamic import() for ESM-only MCP SDK
+ * Create a fresh McpServer instance with all tools and resources registered.
+ * A new instance is needed per request for stateless (sessionless) operation,
+ * because McpServer.connect() can only be called once per instance.
  */
-async function mount(expressApp) {
-  const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
-  const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-
+function createServer(McpServer) {
   const server = new McpServer({
     name: 'Bank Explorer',
     version: '1.0.0',
@@ -61,9 +59,22 @@ async function mount(expressApp) {
   // Register MCP App resources (serves built HTML files)
   chartApps.register(server);
 
+  return server;
+}
+
+/**
+ * Mount MCP server on an Express app at /mcp
+ * Uses dynamic import() for ESM-only MCP SDK
+ */
+async function mount(expressApp) {
+  const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+  const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
+
   // Mount Streamable HTTP endpoint
+  // Each request gets a fresh McpServer instance (stateless, no sessions)
   expressApp.post('/mcp', async (req, res) => {
     try {
+      const server = createServer(McpServer);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
@@ -97,7 +108,6 @@ async function mount(expressApp) {
   });
 
   console.log('MCP server mounted at /mcp');
-  return server;
 }
 
 module.exports = { mount };
