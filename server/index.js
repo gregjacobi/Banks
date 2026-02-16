@@ -77,6 +77,22 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// OAuth Protected Resource Metadata (RFC 9728)
+// Claude.ai probes these endpoints to discover auth requirements.
+// Must be registered BEFORE the static file catch-all.
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  res.status(404).json({ error: 'This MCP server does not require authentication.' });
+});
+app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
+  res.status(404).json({ error: 'This MCP server does not require authentication.' });
+});
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  res.status(404).json({ error: 'This MCP server does not require authentication.' });
+});
+app.get('/.well-known/openid-configuration', (req, res) => {
+  res.status(404).json({ error: 'This MCP server does not require authentication.' });
+});
+
 // Serve static files from React app in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '..', 'client', 'build')));

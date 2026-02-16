@@ -96,22 +96,6 @@ async function mount(expressApp) {
     });
   });
 
-  // OAuth Protected Resource Metadata (RFC 9728)
-  // Claude.ai probes these endpoints to discover auth requirements.
-  // Return 404 to signal this is an unauthenticated server.
-  expressApp.get('/.well-known/oauth-protected-resource', (req, res) => {
-    res.status(404).json({ error: 'This MCP server does not require authentication.' });
-  });
-  expressApp.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
-    res.status(404).json({ error: 'This MCP server does not require authentication.' });
-  });
-  expressApp.get('/.well-known/oauth-authorization-server', (req, res) => {
-    res.status(404).json({ error: 'This MCP server does not require authentication.' });
-  });
-  expressApp.get('/.well-known/openid-configuration', (req, res) => {
-    res.status(404).json({ error: 'This MCP server does not require authentication.' });
-  });
-
   console.log('MCP server mounted at /mcp');
   return server;
 }
