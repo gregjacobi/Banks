@@ -2273,6 +2273,24 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
       }
     };
 
+    // Heartbeat to prevent Heroku H15 idle connection timeout (55 seconds)
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+        if (res.socket && res.socket.writable) {
+          res.socket.uncork();
+        }
+      } catch (err) {
+        console.error('[Podcast Heartbeat] Error:', err.message);
+        clearInterval(heartbeatInterval);
+      }
+    }, 25000); // 25 seconds
+
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      console.log('[Podcast] Client disconnected, heartbeat stopped');
+    });
+
     // Step 1: Load existing research report from GridFS (same approach as background endpoint)
     sendStatus('loading', 'Loading research report...');
 
@@ -2302,6 +2320,7 @@ router.get('/:idrssd/podcast/generate', async (req, res) => {
 
     if (bankReports.length === 0) {
       sendStatus('error', 'No research report found. Please generate a report first.');
+      clearInterval(heartbeatInterval);
       res.end();
       return;
     }
@@ -5688,19 +5707,23 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       [{ role: 'user', content: analysisPrompt }],
       {
         temperature: 0.3,
-        max_tokens: 4000
+        max_tokens: 8192
       }
     );
 
     const analysis = response.content[0].text;
-    console.log(`[Extract Insights] Received response from Claude (${analysis.length} chars)`);
+    const stopReason = response.stop_reason || 'unknown';
+    console.log(`[Extract Insights] Received response from Claude (${analysis.length} chars, stop_reason: ${stopReason})`);
+    if (stopReason === 'max_tokens') {
+      console.warn('[Extract Insights] WARNING: Response was truncated due to max_tokens limit');
+    }
 
     // Parse the JSON response
     let insights;
+    // Hoist jsonMatch above try/catch so it's accessible in the catch block
+    const jsonMatch = analysis.match(/```json\s*([\s\S]*?)\s*```/) || analysis.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : analysis;
     try {
-      // Extract JSON from potential markdown code blocks
-      const jsonMatch = analysis.match(/```json\s*([\s\S]*?)\s*```/) || analysis.match(/\{[\s\S]*\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : analysis;
       insights = JSON.parse(jsonStr);
       console.log('[Extract Insights] Successfully parsed insights JSON');
       console.log(`  - Priorities: ${insights.priorities?.length || 0}`);
@@ -5708,27 +5731,61 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       console.log(`  - Tech Partnerships: ${insights.techPartnerships?.length || 0}`);
     } catch (parseError) {
       console.error('[Extract Insights] Failed to parse Claude response:', parseError);
-      console.error('[Extract Insights] JSON string length:', (jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : analysis).length);
+      console.error('[Extract Insights] JSON string length:', jsonStr.length);
       console.error('[Extract Insights] Error position:', parseError.message);
 
-      // Log more context around the error
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : analysis;
-      const errorPosition = parseError.message.match(/position (\d+)/);
-      if (errorPosition) {
-        const pos = parseInt(errorPosition[1]);
-        const contextStart = Math.max(0, pos - 200);
-        const contextEnd = Math.min(jsonStr.length, pos + 200);
-        console.error('[Extract Insights] Context around error:');
-        console.error(jsonStr.substring(contextStart, contextEnd));
+      // Try to repair truncated JSON by closing open brackets/braces
+      let repaired = false;
+      try {
+        let fixedJson = jsonStr.trim();
+        // Remove trailing comma if present
+        fixedJson = fixedJson.replace(/,\s*$/, '');
+        // Count open/close brackets and braces
+        const openBraces = (fixedJson.match(/\{/g) || []).length;
+        const closeBraces = (fixedJson.match(/\}/g) || []).length;
+        const openBrackets = (fixedJson.match(/\[/g) || []).length;
+        const closeBrackets = (fixedJson.match(/\]/g) || []).length;
+        // If we're just missing closing brackets/braces, try to close them
+        if (openBraces > closeBraces || openBrackets > closeBrackets) {
+          // Truncate to last complete element (find last complete object/string)
+          // Remove any trailing partial string or value
+          fixedJson = fixedJson.replace(/,\s*"[^"]*$/, '');  // partial key
+          fixedJson = fixedJson.replace(/,\s*\{[^}]*$/, '');  // partial object
+          fixedJson = fixedJson.replace(/:\s*"[^"]*$/, ': ""');  // partial value
+          fixedJson = fixedJson.replace(/,\s*$/, '');
+          // Close remaining open brackets and braces
+          for (let i = 0; i < openBrackets - (fixedJson.match(/\]/g) || []).length; i++) fixedJson += ']';
+          for (let i = 0; i < openBraces - (fixedJson.match(/\}/g) || []).length; i++) fixedJson += '}';
+          insights = JSON.parse(fixedJson);
+          repaired = true;
+          console.log('[Extract Insights] Successfully repaired truncated JSON');
+          console.log(`  - Priorities: ${insights.priorities?.length || 0}`);
+          console.log(`  - Focus Metrics: ${insights.focusMetrics?.length || 0}`);
+          console.log(`  - Tech Partnerships: ${insights.techPartnerships?.length || 0}`);
+        }
+      } catch (repairError) {
+        console.error('[Extract Insights] JSON repair also failed:', repairError.message);
       }
 
-      // Save the full response to a file for debugging
-      const fs = require('fs').promises;
-      const debugPath = `/tmp/insights-parse-error-${idrssd}-${Date.now()}.txt`;
-      await fs.writeFile(debugPath, analysis);
-      console.error(`[Extract Insights] Full response saved to: ${debugPath}`);
+      if (!repaired) {
+        // Log more context around the error
+        const errorPosition = parseError.message.match(/position (\d+)/);
+        if (errorPosition) {
+          const pos = parseInt(errorPosition[1]);
+          const contextStart = Math.max(0, pos - 200);
+          const contextEnd = Math.min(jsonStr.length, pos + 200);
+          console.error('[Extract Insights] Context around error:');
+          console.error(jsonStr.substring(contextStart, contextEnd));
+        }
 
-      throw new Error(`Failed to parse insights from AI response: ${parseError.message}`);
+        // Save the full response to a file for debugging
+        const fs = require('fs').promises;
+        const debugPath = `/tmp/insights-parse-error-${idrssd}-${Date.now()}.txt`;
+        await fs.writeFile(debugPath, analysis);
+        console.error(`[Extract Insights] Full response saved to: ${debugPath}`);
+
+        throw new Error(`Failed to parse insights from AI response: ${parseError.message}`);
+      }
     }
 
     console.log('[Extract Insights] Saving insights to database...');

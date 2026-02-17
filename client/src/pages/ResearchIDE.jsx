@@ -192,11 +192,12 @@ function ResearchIDEContent() {
     }
   }, [aiLogs]);
 
-  // Convert milestones, insights, and errors to terminal logs
-  useEffect(() => {
-    const logs = [];
+  // Convert milestones, insights, and errors to terminal logs (append, don't replace)
+  const prevMilestonesRef = useRef([]);
+  const prevInsightsRef = useRef([]);
+  const prevErrorRef = useRef(null);
 
-    // Helper to format timestamp consistently
+  useEffect(() => {
     const formatTimestamp = (ts) => {
       if (!ts) return new Date().toLocaleTimeString();
       if (typeof ts === 'number') return new Date(ts).toLocaleTimeString();
@@ -205,44 +206,55 @@ function ResearchIDEContent() {
       return new Date().toLocaleTimeString();
     };
 
-    // Add milestones
-    agentMilestones.forEach(milestone => {
-      logs.push({
-        timestamp: formatTimestamp(milestone.timestamp),
-        timestampRaw: milestone.timestamp || Date.now(), // Keep raw for sorting
-        message: milestone.message,
-        type: 'info'
-      });
-    });
+    const newLogs = [];
 
-    // Add insights
-    agentInsights.forEach(insight => {
-      logs.push({
-        timestamp: formatTimestamp(insight.timestamp),
-        timestampRaw: insight.timestamp || Date.now(), // Keep raw for sorting
-        message: `💡 ${insight.title}: ${insight.content}`,
-        type: 'success'
+    // Only add NEW milestones (not already in terminal)
+    const prevMilestoneCount = prevMilestonesRef.current.length;
+    if (agentMilestones.length > prevMilestoneCount) {
+      agentMilestones.slice(prevMilestoneCount).forEach(milestone => {
+        newLogs.push({
+          timestamp: formatTimestamp(milestone.timestamp),
+          message: `📍 ${milestone.message}`,
+          type: 'info'
+        });
       });
-    });
+    }
+    prevMilestonesRef.current = agentMilestones;
 
-    // Add error if present
-    if (error) {
-      logs.push({
+    // Only add NEW insights
+    const prevInsightCount = prevInsightsRef.current.length;
+    if (agentInsights.length > prevInsightCount) {
+      agentInsights.slice(prevInsightCount).forEach(insight => {
+        newLogs.push({
+          timestamp: formatTimestamp(insight.timestamp),
+          message: `💡 ${insight.title}: ${insight.content}`,
+          type: 'success'
+        });
+      });
+    }
+    prevInsightsRef.current = agentInsights;
+
+    // Only add error if it changed
+    if (error && error !== prevErrorRef.current) {
+      newLogs.push({
         timestamp: formatTimestamp(Date.now()),
-        timestampRaw: Date.now(), // Keep raw for sorting
         message: `❌ Error: ${error}`,
         type: 'error'
       });
     }
+    prevErrorRef.current = error;
 
-    // Sort by raw timestamp
-    logs.sort((a, b) => {
-      const aTime = typeof a.timestampRaw === 'number' ? a.timestampRaw : new Date(a.timestampRaw).getTime();
-      const bTime = typeof b.timestampRaw === 'number' ? b.timestampRaw : new Date(b.timestampRaw).getTime();
-      return aTime - bTime;
-    });
+    // Append new logs to existing terminal logs
+    if (newLogs.length > 0) {
+      setTerminalLogs(prev => [...prev, ...newLogs]);
 
-    setTerminalLogs(logs);
+      // Auto-scroll terminal to bottom
+      setTimeout(() => {
+        if (terminalRef.current) {
+          terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+        }
+      }, 10);
+    }
   }, [agentMilestones, agentInsights, error]);
 
   const setupSSEConnection = () => {

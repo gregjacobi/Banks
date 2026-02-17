@@ -506,6 +506,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
       setInsightExtracting(true);
       setInsightProgress(0);
       setInsightStatus('Starting insight extraction...');
+      addLog('🔍 Starting insight extraction...', 'info');
 
       const eventSource = new EventSource(`/api/research/${idrssd}/extract-insights`);
 
@@ -515,6 +516,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
             const data = JSON.parse(e.data);
             console.log('[Insight Extraction] Status:', data.message);
             setInsightStatus(data.message);
+            addLog(data.message, 'info');
             if (data.progress !== undefined) {
               setInsightProgress(data.progress);
             }
@@ -530,6 +532,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
             setInsightExtracting(false);
             setInsightProgress(100);
             setInsightStatus('Insight extraction complete');
+            addLog('✅ Insight extraction complete', 'success');
             eventSource.close();
 
             // Reload metadata to get updated insights
@@ -551,6 +554,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
               console.error('[Insight Extraction] Error:', data);
               setInsightExtracting(false);
               setInsightStatus(`Error: ${data.message}`);
+              addLog(`❌ Insight extraction error: ${data.message}`, 'error');
               eventSource.close();
               reject(new Error(data.message));
             } else {
@@ -560,6 +564,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
             console.error('[Insight Extraction] Error event without parseable data:', err, e);
             setInsightExtracting(false);
             setInsightStatus('Error during extraction');
+            addLog('❌ Error during extraction', 'error');
             eventSource.close();
             reject(new Error('Error during extraction'));
           }
@@ -569,6 +574,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
           console.error('[Insight Extraction] EventSource error:', err);
           setInsightExtracting(false);
           setInsightStatus('Connection error');
+          addLog('❌ Connection error during insight extraction', 'error');
           eventSource.close();
           reject(err);
         };
@@ -577,6 +583,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
       console.error('Error extracting insights:', err);
       setInsightExtracting(false);
       setInsightStatus('Error extracting insights');
+      addLog(`❌ ${err.message}`, 'error');
       throw err;
     }
   };
@@ -1363,6 +1370,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
       setStreamingThinking('');
       setAgentMilestones([]);  // Reset milestones
       setAgentInsights([]);    // Reset insights
+      addLog('🔬 Starting agent report generation...', 'info');
 
       // Start SSE connection for agent-based report generation
       const eventSource = new EventSource(
@@ -1380,15 +1388,20 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
           // Update progress based on stage
           if (data.stage === 'init') {
             setReportProgress(5);
+            addLog('Initializing agent...', 'info');
           } else if (data.stage === 'fetching') {
             setReportProgress(10);
+            addLog('Fetching data...', 'info');
           } else if (data.stage === 'preparing') {
             setReportProgress(15);
+            addLog('Preparing research context...', 'info');
           } else if (data.stage === 'agent_init') {
             setCurrentPhase('agent_research');
             setReportProgress(20);
+            addLog('Agent research initialized', 'info');
           } else if (data.stage === 'agent_running') {
             setReportProgress(25);
+            addLog('Agent researching...', 'info');
           } else if (data.stage === 'agent_milestone') {
             // Agent reached a milestone (e.g., analyzing financials, querying documents)
             const milestone = {
@@ -1398,23 +1411,30 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
             };
             setAgentMilestones(prev => [...prev, milestone]);
             setReportProgress(Math.min(60, reportProgress + 3));
+            addLog(`📍 ${milestone.message}`, 'info');
           } else if (data.stage === 'agent_insight' && data.insight) {
             // Agent discovered an insight
             const insight = data.insight;
             setAgentInsights(prev => [...prev, insight]);
             setReportProgress(Math.min(65, reportProgress + 2));
+            addLog(`💡 Insight: ${typeof insight === 'string' ? insight : insight.title || 'New insight'}`, 'success');
           } else if (data.stage === 'agent_complete') {
             setReportProgress(70);
+            addLog('Agent research complete', 'info');
           } else if (data.stage === 'synthesizing') {
             setCurrentPhase('synthesis');
             setReportProgress(75);
+            addLog('Synthesizing report...', 'info');
           } else if (data.stage === 'synthesis_generating') {
             setCurrentPhase('synthesis');
             setReportProgress(80);
+            addLog('Generating final report...', 'info');
           } else if (data.stage === 'synthesis_complete') {
             setReportProgress(95);
+            addLog('Report synthesis complete', 'info');
           } else if (data.stage === 'saving') {
             setReportProgress(98);
+            addLog('Saving report...', 'info');
           } else if (data.stage === 'complete') {
             console.log('Agent report generation complete');
             reportCompleted = true;
@@ -1426,13 +1446,18 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
             setAgentInsights([]);    // Clear insights (they're now in the report)
             loadReports();
             eventSource.close();
+            addLog('✅ Agent report generation complete', 'success');
           } else if (data.stage === 'error') {
             console.error('Agent report generation error:', data.message);
             if (!reportCompleted) {
               setError(data.message || 'Agent report generation failed');
               setReportInProgress(false);
+              addLog(`❌ Report error: ${data.message || 'Unknown error'}`, 'error');
             }
             eventSource.close();
+          } else if (data.message) {
+            // Log any other messages that have a message field
+            addLog(data.message, 'info');
           }
         } catch (parseError) {
           console.error('Error parsing agent SSE message:', parseError);
@@ -1444,6 +1469,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
         if (!reportCompleted) {
           setReportInProgress(false);
           setError('Connection lost. The agent workflow may have stopped due to a server error. Please check the server logs or try again.');
+          addLog('❌ Connection lost during report generation', 'error');
         }
         eventSource.close();
       };
@@ -1452,6 +1478,7 @@ export const AIProvider = ({ children, idrssd, bankName }) => {
       console.error('Error generating agent report:', err);
       setError('Failed to generate agent report');
       setReportInProgress(false);
+      addLog(`❌ ${err.message}`, 'error');
     }
   };
 
