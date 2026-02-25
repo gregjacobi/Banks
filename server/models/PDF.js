@@ -38,6 +38,11 @@ const pdfSchema = new mongoose.Schema({
     required: true
   },
 
+  // GridFS file ID (for durable storage)
+  gridfsFileId: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+
   // Optional: Source this PDF was created from
   sourceId: {
     type: String,

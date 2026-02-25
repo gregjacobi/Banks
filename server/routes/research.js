@@ -4527,31 +4527,9 @@ ${s.content}
  * ============================================================================
  */
 
-// Configure multer for PDF uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const { idrssd } = req.params;
-    const bankPdfDir = path.join(PDFS_DIR, idrssd);
-
-    // Ensure bank's PDF directory exists
-    try {
-      await fs.mkdir(bankPdfDir, { recursive: true });
-      cb(null, bankPdfDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(7);
-    const ext = path.extname(file.originalname);
-    cb(null, `${timestamp}_${randomId}${ext}`);
-  }
-});
-
+// Configure multer for PDF uploads (use memory storage for Heroku compatibility)
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 50 * 1024 * 1024, // 50MB limit per file
   },
@@ -4585,24 +4563,34 @@ router.post('/:idrssd/pdfs/upload', upload.single('pdf'), async (req, res) => {
     const existingSize = await PDF.getTotalSize(idrssd);
 
     if (existingCount >= 20) {
-      // Delete the uploaded file
-      await fs.unlink(req.file.path);
       return res.status(400).json({ error: 'Maximum of 20 PDFs per bank reached' });
     }
 
     if (existingSize + req.file.size > 100 * 1024 * 1024) { // 100MB total limit
-      // Delete the uploaded file
-      await fs.unlink(req.file.path);
       return res.status(400).json({ error: 'Total PDF size limit (100MB) exceeded' });
     }
 
-    // Create PDF record
-    const pdf = new PDF({
-      pdfId: `pdf_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+    // Upload to GridFS for durable storage (Heroku has ephemeral filesystem)
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(7);
+    const storedFilename = `${timestamp}_${randomId}.pdf`;
+
+    const gridfsFileId = await uploadToGridFS(req.file.buffer, storedFilename, 'application/pdf', {
       idrssd,
       originalFilename: req.file.originalname,
-      storedFilename: req.file.filename,
+      uploadType: sourceId ? 'from_source' : 'manual'
+    });
+
+    console.log(`[PDF Upload] Uploaded to GridFS: ${gridfsFileId}`);
+
+    // Create PDF record
+    const pdf = new PDF({
+      pdfId: `pdf_${timestamp}_${randomId}`,
+      idrssd,
+      originalFilename: req.file.originalname,
+      storedFilename: storedFilename,
       fileSize: req.file.size,
+      gridfsFileId: gridfsFileId,
       sourceId: sourceId || undefined,
       sourceUrl: sourceUrl || undefined,
       uploadType: sourceId ? 'from_source' : 'manual',
@@ -5143,17 +5131,44 @@ router.post('/:idrssd/pdfs/:pdfId/upload-to-rag', async (req, res) => {
 
     console.log(`[Upload PDF to RAG] Starting upload for PDF ${pdfId}`);
 
-    // Step 1: Create GroundingDocument
+    // Step 1: Create GroundingDocument with GridFS reference
     const GroundingDocument = require('../models/GroundingDocument');
     const groundingService = require('../services/groundingService');
+    const { pdfBucket } = require('../config/gridfs');
+
+    // Find or create GridFS file for this PDF
+    let gridfsFileId = pdf.gridfsFileId;
+    if (!gridfsFileId) {
+      // Try to find by metadata
+      const gridfsFiles = await pdfBucket.find({ 'metadata.originalFilename': pdf.originalFilename, 'metadata.idrssd': idrssd }).sort({ uploadDate: -1 }).limit(1).toArray();
+      if (gridfsFiles.length > 0) {
+        gridfsFileId = gridfsFiles[0]._id;
+      } else {
+        // Fall back to reading from disk and uploading to GridFS
+        try {
+          const pdfBuffer = await fs.readFile(pdf.getFilePath());
+          gridfsFileId = await uploadToGridFS(pdfBuffer, pdf.storedFilename, 'application/pdf', {
+            idrssd,
+            originalFilename: pdf.originalFilename
+          });
+          console.log(`[Upload PDF to RAG] Re-uploaded PDF to GridFS: ${gridfsFileId}`);
+        } catch (readErr) {
+          throw new Error(`PDF file not found on disk or in GridFS. Please re-upload the PDF.`);
+        }
+      }
+      // Save gridfsFileId on the PDF record for future use
+      pdf.gridfsFileId = gridfsFileId;
+      await pdf.save();
+    }
 
     const groundingDoc = new GroundingDocument({
       filename: pdf.originalFilename,
       title: pdf.originalFilename.replace('.pdf', ''),
       idrssd: idrssd,
-      filePath: pdf.getFilePath(),
+      gridfsFileId: gridfsFileId,
+      contentType: 'application/pdf',
       fileSize: pdf.fileSize,
-      topics: ['general'], // Default topic, can be refined
+      topics: ['general'],
       bankTypes: ['all'],
       assetSizeRange: 'all',
       processingStatus: 'pending'
