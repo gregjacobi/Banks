@@ -200,18 +200,19 @@ async function findLogoForBank(bank) {
 
   const BankMetadata = require('../../models/BankMetadata');
   const Institution = require('../../models/Institution');
+  const BankLogo = require('../../models/BankLogo');
   const metadata = await BankMetadata.getOrCreate(bank.idrssd, bank.name);
 
-  // Check if logo already exists
-  if (metadata.logo?.url && !force) {
-    log.warning('Logo already exists in database (use --force to re-find)');
-    log.debug('Existing logo data', metadata.logo);
-    return { success: true, existing: true, logo: metadata.logo };
+  // Check if logo already exists in GridFS (BankLogo collection)
+  const existingLogos = await BankLogo.find({ idrssd: bank.idrssd }).lean();
+  if (existingLogos.length > 0 && !force) {
+    log.warning('Logo already exists in GridFS (use --force to re-find)');
+    log.debug('Existing BankLogo records', existingLogos.map(l => ({ variant: l.variant, filename: l.filename, source: l.source })));
+    return { success: true, existing: true, variants: existingLogos };
   }
 
-  if (metadata.logo?.url && force) {
-    log.warning('Logo exists but --force flag set, re-finding logo');
-    log.debug('Existing logo data (will be replaced)', metadata.logo);
+  if (existingLogos.length > 0 && force) {
+    log.warning(`${existingLogos.length} logo(s) exist in GridFS but --force flag set, re-finding`);
   }
 
   log.step(1, 'Checking for stored website URL from call report data');
@@ -784,22 +785,22 @@ async function listBanksWithLogos() {
   log.section('📊 Banks with Logo Status');
 
   const banks = await getTopBanks(count);
-  const BankMetadata = require('../../models/BankMetadata');
+  const BankLogo = require('../../models/BankLogo');
 
   console.log('\n' + '='.repeat(100));
   console.log(sprintf('%-10s %-50s %-15s %-10s', 'ID RSSD', 'Bank Name', 'Assets', 'Logo'));
   console.log('='.repeat(100));
 
   for (const bank of banks) {
-    const metadata = await BankMetadata.findOne({ idrssd: bank.idrssd });
-    const hasLogo = metadata?.logo?.url ? '✅' : '❌';
-    const source = metadata?.logo?.source ? ` (${metadata.logo.source})` : '';
+    const logos = await BankLogo.find({ idrssd: bank.idrssd }).lean();
+    const hasLogo = logos.length > 0 ? '✅' : '❌';
+    const variants = logos.length > 0 ? ` (${logos.map(l => l.variant).join(', ')})` : '';
 
     console.log(sprintf('%-10s %-50s %-15s %-10s',
       bank.idrssd,
       truncate(bank.name, 48),
       formatAssets(bank.totalAssets),
-      hasLogo + source
+      hasLogo + variants
     ));
   }
 

@@ -220,6 +220,14 @@ When analyzing any trend or metric improvement, you MUST provide peer group cont
   - Scalability and operational discipline
 
 When generating insights about these metrics, always state the correct direction and what it means for the bank's performance.
+
+**CRITICAL: VERIFY CURRENT STATUS OF REGULATORY ACTIONS**
+Today's date is ${new Date().toISOString().split('T')[0]}. When discussing any regulatory actions, consent orders, asset caps, or restrictions:
+- **DO NOT rely on your training data** for the current status of regulatory actions. Regulatory situations change frequently.
+- **ALWAYS verify via web search** whether a regulatory action is still in effect before mentioning it. Search for "[Bank Name] [regulatory action] lifted" or "[Bank Name] [regulatory action] current status ${new Date().getFullYear()}".
+- **If you cannot confirm a regulatory action is still active**, do NOT include it in the report. It is better to omit than to report outdated information.
+- **Notable example:** The Wells Fargo asset cap (imposed 2018) was lifted by the Federal Reserve in 2025. Do not reference it as a current constraint.
+- **When mentioning any past regulatory action**, clearly state whether it is currently active or has been resolved, with a source citation.
 `;
 }
 

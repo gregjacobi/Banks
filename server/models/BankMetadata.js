@@ -29,14 +29,8 @@ const bankMetadataSchema = new mongoose.Schema({
     url: {
       type: String // URL to the full logo image
     },
-    localPath: {
-      type: String // Path to downloaded full logo file
-    },
     symbolUrl: {
       type: String // URL to the symbol/square logo image
-    },
-    symbolLocalPath: {
-      type: String // Path to downloaded symbol logo file
     },
     source: {
       type: String // Where the logo was found (e.g., "Wikipedia", "Official Website", "Brandfetch")

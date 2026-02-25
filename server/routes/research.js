@@ -4859,8 +4859,9 @@ router.post('/:idrssd/sources/:sourceId/download-pdf', async (req, res) => {
       return res.status(404).json({ error: 'Source not found' });
     }
 
-    // Check if the URL is a PDF
-    if (!source.url.toLowerCase().endsWith('.pdf')) {
+    // Check if the URL is a PDF (strip query params/hash for check)
+    const downloadUrlLower = source.url.toLowerCase().split('?')[0].split('#')[0];
+    if (!downloadUrlLower.endsWith('.pdf')) {
       return res.status(400).json({
         error: 'Source is not a PDF. Please download manually from your browser and upload it.'
       });
@@ -4945,17 +4946,20 @@ router.post('/:idrssd/sources/:sourceId/upload-to-rag', async (req, res) => {
       });
     }
 
-    // Check if the source URL is a PDF
-    if (!source.url.toLowerCase().endsWith('.pdf')) {
-      return res.status(400).json({
-        error: 'Source is not a PDF. Only PDFs can be uploaded to RAG.'
-      });
-    }
-
     // Check if already uploaded
     if (source.ragStatus === 'completed') {
       return res.status(400).json({
         error: 'Source already uploaded to RAG'
+      });
+    }
+
+    // Check if the source URL looks like a PDF (by extension or known PDF patterns)
+    const urlLower = source.url.toLowerCase().split('?')[0].split('#')[0];
+    const isPDF = urlLower.endsWith('.pdf');
+
+    if (!isPDF) {
+      return res.status(400).json({
+        error: 'Source is not a PDF. Only PDF sources can be uploaded to RAG. For non-PDF sources (transcripts, articles), use the manual upload option.'
       });
     }
 
@@ -4987,15 +4991,24 @@ router.post('/:idrssd/sources/:sourceId/upload-to-rag', async (req, res) => {
           }
         });
 
-        // Save to disk
+        // Verify we got a PDF response (not an HTML error page)
+        const contentType = response.headers['content-type'] || '';
+        if (contentType.includes('text/html')) {
+          throw new Error(`URL returned HTML instead of PDF - the link may be broken or require authentication`);
+        }
+
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(7);
         const filename = `${timestamp}_${randomId}.pdf`;
-        const bankPdfDir = path.join(PDFS_DIR, idrssd);
-        await fs.mkdir(bankPdfDir, { recursive: true });
-        const filePath = path.join(bankPdfDir, filename);
 
-        await fs.writeFile(filePath, response.data);
+        // Upload to GridFS instead of disk (Heroku has ephemeral filesystem)
+        const gridfsFileId = await uploadToGridFS(response.data, filename, 'application/pdf', {
+          idrssd,
+          sourceId: source.sourceId,
+          originalFilename: source.title + '.pdf'
+        });
+
+        console.log(`[Upload to RAG] Uploaded to GridFS: ${gridfsFileId}`);
 
         // Create PDF record
         pdf = new PDF({
@@ -5015,18 +5028,39 @@ router.post('/:idrssd/sources/:sourceId/upload-to-rag', async (req, res) => {
         console.log(`[Upload to RAG] Downloaded and saved PDF: ${pdf.pdfId}`);
       }
 
-      // Step 2: Create GroundingDocument
+      // Step 2: Create GroundingDocument with GridFS reference
       const GroundingDocument = require('../models/GroundingDocument');
       const groundingService = require('../services/groundingService');
+
+      // Find the GridFS file for this PDF
+      const { pdfBucket } = require('../config/gridfs');
+      let gridfsFileId = null;
+
+      // Check if we already have a GridFS file from the download above
+      const gridfsFiles = await pdfBucket.find({ 'metadata.sourceId': source.sourceId }).sort({ uploadDate: -1 }).limit(1).toArray();
+      if (gridfsFiles.length > 0) {
+        gridfsFileId = gridfsFiles[0]._id;
+      } else {
+        // Re-upload from disk if PDF existed before GridFS migration
+        const pdfFilePath = pdf.getFilePath();
+        const pdfBuffer = await fs.readFile(pdfFilePath);
+        gridfsFileId = await uploadToGridFS(pdfBuffer, pdf.storedFilename, 'application/pdf', {
+          idrssd,
+          sourceId: source.sourceId,
+          originalFilename: pdf.originalFilename
+        });
+        console.log(`[Upload to RAG] Re-uploaded existing PDF to GridFS: ${gridfsFileId}`);
+      }
 
       const groundingDoc = new GroundingDocument({
         filename: pdf.originalFilename,
         title: source.title || pdf.originalFilename,
         idrssd: idrssd,
-        filePath: pdf.getFilePath(),
+        gridfsFileId: gridfsFileId,
+        contentType: 'application/pdf',
         fileSize: pdf.fileSize,
         topics: mapDocumentTypeToTopics(source.documentType),
-        bankTypes: ['all'], // Can be refined based on bank size
+        bankTypes: ['all'],
         assetSizeRange: 'all',
         processingStatus: 'pending'
       });
@@ -5339,7 +5373,7 @@ router.get('/:idrssd/metadata', async (req, res) => {
     }
 
     console.log(`[Metadata] Returning metadata for ${institution.name}:`);
-    console.log(`  - Logo: ${metadata.logo?.localPath ? 'Yes' : 'No'}`);
+    console.log(`  - Logo: ${metadata.logo?.url ? 'Yes' : 'No'}`);
     console.log(`  - Ticker: ${metadata.ticker?.symbol || 'No'}`);
     console.log(`  - Org Chart: ${metadata.orgChart ? 'Yes' : 'No'}`);
     console.log(`  - Strategic Insights Status: ${metadata.strategicInsights?.status || 'not_extracted'}`);
