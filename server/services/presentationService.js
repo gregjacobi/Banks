@@ -739,7 +739,7 @@ Return ONLY valid JSON in this exact format:
 REMEMBER: chartType is MANDATORY for every finding. McKinsey presentations always include visual data. Each chapter should have 1-2 findings (not more).`;
 
     const response = await this.anthropic.messages.create({
-      model: this.model || 'fennec-v7-fast',
+      model: this.model || 'capybara-v4-high-effort99-prod',
       max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }]
     });

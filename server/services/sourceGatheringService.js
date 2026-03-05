@@ -217,7 +217,7 @@ async function gatherSourcesForBank(idrssd, options = {}) {
         content: tickerPrompt
       }], {
         temperature: 0.3,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 
@@ -266,7 +266,7 @@ async function gatherSourcesForBank(idrssd, options = {}) {
         content: orgChartPrompt
       }], {
         temperature: 0.3,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 

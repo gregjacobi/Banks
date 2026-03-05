@@ -3190,7 +3190,7 @@ If not publicly traded, return: {"found": false}`;
         content: tickerPrompt
       }], {
         temperature: 0.1,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 
@@ -3286,7 +3286,7 @@ If you cannot find executives, return: {"found": false, "executives": [], "board
         content: orgChartPrompt
       }], {
         temperature: 0.1,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 
@@ -5964,7 +5964,7 @@ router.get('/:idrssd/gather-metadata', async (req, res) => {
         content: tickerPrompt
       }], {
         temperature: 0.3,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 
@@ -6022,7 +6022,7 @@ router.get('/:idrssd/gather-metadata', async (req, res) => {
         content: orgChartPrompt
       }], {
         temperature: 0.3,
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
       });
 
@@ -6639,7 +6639,7 @@ router.get('/term-definition', async (req, res) => {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     const response = await anthropic.messages.create({
-      model: 'fennec-v7-fast',
+      model: 'capybara-v4-high-effort99-prod',
       max_tokens: 500,
       messages: [{
         role: 'user',

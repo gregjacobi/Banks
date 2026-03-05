@@ -17,7 +17,7 @@ class ModelResolver {
     this.cacheTTL = 60 * 60 * 1000; // 1 hour
 
     // Fallback model if API call fails
-    this.fallbackModel = 'fennec-v7-fast';
+    this.fallbackModel = 'capybara-v4-high-effort99-prod';
   }
 
   /**

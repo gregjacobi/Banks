@@ -258,7 +258,7 @@ function register(server, registerAppTool) {
         const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
         const response = await anthropic.messages.create({
-          model: 'fennec-v7-fast',
+          model: 'capybara-v4-high-effort99-prod',
           max_tokens: 1024,
           messages: [{
             role: 'user',

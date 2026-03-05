@@ -581,7 +581,7 @@ Be practical but maintain quality standards. A good report requires good sources
 
     try {
       const response = await this.anthropic.messages.create({
-        model: 'fennec-v7-fast',
+        model: 'capybara-v4-high-effort99-prod',
         max_tokens: 4096,
         temperature: 0.3,
         messages: [{
