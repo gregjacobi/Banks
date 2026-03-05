@@ -54,7 +54,11 @@ class UBPRAnalysisAgent {
         }]
       });
 
-      const analysisText = response.content[0].text;
+      // With thinking enabled, content[0] is a thinking block — filter for text blocks
+      const analysisText = response.content
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('');
 
       // Parse the analysis into structured format
       const parsedAnalysis = this.parseAnalysis(analysisText, comparisons);

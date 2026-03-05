@@ -3569,8 +3569,12 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       }
     );
 
-    const analysis = response.content[0].text;
-    console.log(`[Batch Extract Insights] Received response from Claude (${analysis.length} chars)`);
+    // Extract text blocks only (skip thinking blocks that high-effort models emit)
+    const analysis = response.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('');
+    console.log(`[Batch Extract Insights] Received response from Claude (${analysis.length} chars, blocks: ${response.content.map(b => b.type).join(',')})`);
     sendStatus('parsing', 'Parsing Claude response...');
 
     // Parse the JSON response
@@ -5607,12 +5611,22 @@ router.get('/:idrssd/extract-insights', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
   const { idrssd } = req.params;
 
   const sendEvent = (type, data) => {
     res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+
+  // Heartbeat to prevent Heroku H15 idle connection timeout (55s) during long Claude calls
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (err) {
+      clearInterval(heartbeatInterval);
+    }
+  }, 30000);
 
   try {
     console.log(`\n[Extract Insights] Starting for bank ${idrssd}`);
@@ -5760,9 +5774,13 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       }
     );
 
-    const analysis = response.content[0].text;
+    // Extract text blocks only (skip thinking blocks that high-effort models emit)
+    const analysis = response.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('');
     const stopReason = response.stop_reason || 'unknown';
-    console.log(`[Extract Insights] Received response from Claude (${analysis.length} chars, stop_reason: ${stopReason})`);
+    console.log(`[Extract Insights] Received response from Claude (${analysis.length} chars, stop_reason: ${stopReason}, blocks: ${response.content.map(b => b.type).join(',')})`);
     if (stopReason === 'max_tokens') {
       console.warn('[Extract Insights] WARNING: Response was truncated due to max_tokens limit');
     }
@@ -5864,9 +5882,11 @@ Only include items that are explicitly mentioned in the context. Use exact quote
       }
     });
 
+    clearInterval(heartbeatInterval);
     res.end();
 
   } catch (error) {
+    clearInterval(heartbeatInterval);
     console.error('[Extract Insights] Error:', error);
 
     // Update metadata to failed
@@ -6652,7 +6672,10 @@ Format your response as HTML with <p> tags.`
       }]
     });
 
-    const definition = response.content[0].text;
+    const definition = response.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('');
 
     res.json({ term, definition });
   } catch (error) {

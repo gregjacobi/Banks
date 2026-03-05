@@ -744,7 +744,10 @@ REMEMBER: chartType is MANDATORY for every finding. McKinsey presentations alway
       messages: [{ role: 'user', content: prompt }]
     });
 
-    const text = response.content[0].text;
+    const text = response.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('');
 
     // Extract JSON from response with robust parsing
     const jsonMatch = text.match(/\{[\s\S]*\}/);
